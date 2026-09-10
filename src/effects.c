@@ -625,15 +625,9 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 		}
 	} else if (hide_blur_toplevels) {
 		wl_list_for_each(tl, &server.toplevels, link) {
-			if (!tl->blur) {
-				wlr_log(WLR_DEBUG, "DBGTL: tl=%p blur=NULL (no blur struct)", (void *)tl);
+			if (!tl->blur)
 				continue;
-			}
 			tl->blur->blur_scene_hidden = false;
-			int bc = blur_count(tl->blur);
-			wlr_log(WLR_DEBUG, "DBGTL: tl=%p blur=%p count=%d mica=%d acryl=%d shown=%d", (void *)tl,
-				(void *)tl->blur, bc, !!tl->blur->mica_node, !!tl->blur->acrylic_node,
-				tl->node && tl->node->client ? tl->node->client->flags.shown : -1);
 			if ((blur_count(tl->blur) > 0 || tl->blur->mica_node || tl->blur->acrylic_node) &&
 					tl->scene_tree && tl->scene_tree->node.enabled) {
 				wlr_scene_node_set_enabled(&tl->scene_tree->node, false);
@@ -805,11 +799,6 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 
 	bool keep_blur = ctx->blur_buf && ctx->blur_native[0] && ctx->blur_gen == ctx->backdrop_gen;
 
-	wlr_log(WLR_DEBUG, "rebuild_live_blur: output=%s, keep=%d, blur_buf=%p, blur_gen=%u, "
-		"backdrop_gen=%u, blur_w=%d, blur_h=%d, shared_bg.valid=%d", output->name, keep_blur,
-			(void *)ctx->blur_buf, ctx->blur_gen, ctx->backdrop_gen, ctx->blur_w, ctx->blur_h,
-			shared_blurred.valid);
-
 	if (!keep_blur) {
 		// capture shared background if not provided (fallback for non-damaged frames)
 		if (!shared_blurred.valid) {
@@ -868,9 +857,6 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 			return false;
 		}
 		ctx->blur_gen = ctx->backdrop_gen;
-		wlr_log(WLR_DEBUG,
-			"rebuild_live_blur: blur rebuilt for output %s, blur_buf native FBO=%lu, result tex=%lu",
-			output->name, (unsigned long)ctx->blur_native[0], (unsigned long)blur_result.handle);
 	}
 	any = true;
 
@@ -2410,8 +2396,6 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 	bool blur_stale = blur_enabled && has_window_blur && (!ctx->blur_buf || !ctx->blur_native[0] ||
 		ctx->blur_gen != ctx->backdrop_gen);
 	bool effects_work = bg_damaged || mica_dirty || blur_stale;
-	wlr_log(WLR_DEBUG,
-		"DBGFRAME: bg_damaged=%d mica_dirty=%d blur_stale=%d effects_work=%d bg=%d blur_gen=%u bd_gen=%u shared_valid=%d frame_valid=%d blurred.valid=%d", bg_damaged, mica_dirty, blur_stale, effects_work, bg_damaged, ctx->blur_gen, ctx->backdrop_gen, ctx->shared_bg_valid, ctx->frame_capture.valid, ctx->frame_capture.valid);
 
 	if (!effects_work && !effects_border_pending(output) && !screen_shader_enabled)
 		return;
