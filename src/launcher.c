@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_activation_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -127,6 +128,33 @@ const char *launcher_ctx_get_token_name(launcher_ctx_t *ctx) {
 	return wlr_xdg_activation_token_v1_get_name(ctx->token);
 }
 
+launcher_ctx_t *launcher_ctx_create_internal(void) {
+	const char *desktop_name = NULL;
+	output_t *output = server.focused_output;
+	if (output && output->desk)
+		desktop_name = output->desk->name;
+
+	if (desktop_name == NULL) {
+		wlr_log(WLR_DEBUG, "xdg_activation: no focused desktop, skipping token");
+		return NULL;
+	}
+
+	struct wlr_xdg_activation_token_v1 *token =
+		wlr_xdg_activation_token_v1_create(server.xdg_activation_v1);
+	if (token == NULL) {
+		wlr_log(WLR_ERROR, "xdg_activation: failed to create activation token");
+		return NULL;
+	}
+
+	launcher_ctx_t *ctx = launcher_ctx_create(token, desktop_name);
+	if (ctx == NULL) {
+		wlr_xdg_activation_token_v1_destroy(token);
+		return NULL;
+	}
+
+	return ctx;
+}
+
 static void handle_xdg_activation_request_activate(struct wl_listener *listener, void *data) {
 	(void)listener;
 	const struct wlr_xdg_activation_v1_request_activate_event *event = data;
@@ -211,4 +239,52 @@ void launcher_fini(void) {
 	launcher_ctx_t *ctx, *tmp;
 	wl_list_for_each_safe(ctx, tmp, &server.pending_launcher_ctxs, link)
 		launcher_ctx_destroy(ctx);
+}
+
+void launcher_exec(const char *cmd) {
+	if (!cmd || cmd[0] == '\0')
+		return;
+
+	bool no_startup_id = false;
+	const char *cmd_str = cmd;
+
+	if (strncmp(cmd_str, "--no-startup-id", 15) == 0 && (cmd_str[15] == ' ' || cmd_str[15] == '\t')) {
+		no_startup_id = true;
+		cmd_str += 15;
+		while (*cmd_str == ' ' || *cmd_str == '\t')
+			cmd_str++;
+	}
+
+	if (cmd_str[0] == '\0')
+		return;
+
+	wlr_log(WLR_DEBUG, "Executing %s", cmd_str);
+
+	launcher_ctx_t *ctx = launcher_ctx_create_internal();
+
+	pid_t child = fork();
+	if (child == 0) {
+		setsid();
+
+		if (ctx) {
+			const char *token = launcher_ctx_get_token_name(ctx);
+			if (token) {
+				setenv("XDG_ACTIVATION_TOKEN", token, 1);
+				if (!no_startup_id)
+					setenv("DESKTOP_STARTUP_ID", token, 1);
+			}
+		}
+
+		execlp("sh", "sh", "-c", cmd_str, (void *)NULL);
+		wlr_log(WLR_ERROR, "execlp failed: %s", strerror(errno));
+		_exit(1);
+	} else if (child < 0) {
+		wlr_log(WLR_ERROR, "fork() failed: %s", strerror(errno));
+		if (ctx)
+			launcher_ctx_destroy(ctx);
+		return;
+	}
+
+	if (ctx)
+		ctx->pid = child;
 }

@@ -1,6 +1,7 @@
 #include "config.h"
 #include "global_shortcuts.h"
 #include "keyboard.h"
+#include "launcher.h"
 #include "master_stack.h"
 #include "once.h"
 #include "output.h"
@@ -1249,12 +1250,7 @@ void execute_bind(bind_t b) {
 		break;
 	case BIND_EXTERNAL:
 	case BIND_NONE:
-		if (b.external_cmd[0] != '\0') {
-			if (fork() == 0) {
-				execl("/bin/sh", "/bin/sh", "-c", b.external_cmd, NULL);
-				_exit(1);
-			}
-		}
+		launcher_exec(b.external_cmd);
 		break;
 	case BIND_ENTER_SUBMAP:
 		enter_submap(b.submap_name);
