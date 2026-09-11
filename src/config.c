@@ -810,24 +810,34 @@ void load_hotkeys(const char *config_path) {
 			continue;
 
 		if (first_char == '@') {
-			size_t flush_indent = pending_hotkey_indent;
+			if (indent == 0) {
+				if (pending_hotkey[0] != '\0') {
+					snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
+					snprintf(command, sizeof(command), "%s", pending_command);
+					parse_hotkey_line(hotkey, command);
+					pending_hotkey[0] = '\0';
+					pending_command[0] = '\0';
+				}
+				pending_hotkey_indent = 0;
+				char *submap_name = content_start + 1;
+				current_parsing_submap = find_or_create_submap(submap_name);
+			} else {
+				snprintf(pending_command, sizeof(pending_command), "%s", content_start);
+				offset = strlen(pending_command);
+			}
+			continue;
+		}
+
+		if (current_parsing_submap != NULL && indent == 0) {
 			if (pending_hotkey[0] != '\0') {
 				snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
 				snprintf(command, sizeof(command), "%s", pending_command);
 				parse_hotkey_line(hotkey, command);
 				pending_hotkey[0] = '\0';
 				pending_command[0] = '\0';
-			}
-			if (current_parsing_submap == NULL) {
 				pending_hotkey_indent = 0;
-				char *submap_name = content_start + 1;
-				current_parsing_submap = find_or_create_submap(submap_name);
-			} else {
-				snprintf(pending_command, sizeof(pending_command), "%s", content_start);
-				pending_hotkey_indent = flush_indent;
-				offset = 0;
 			}
-			continue;
+			current_parsing_submap = NULL;
 		}
 
 		if (indent == 0 && strstr(ptr, "->")) {
@@ -837,6 +847,9 @@ void load_hotkeys(const char *config_path) {
 					snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
 					snprintf(command, sizeof(command), "%s", pending_command);
 					parse_hotkey_line(hotkey, command);
+					pending_hotkey[0] = '\0';
+					pending_command[0] = '\0';
+					pending_hotkey_indent = 0;
 				}
 				size_t key_part_len = arrow - ptr;
 				while (key_part_len > 0 && ptr[key_part_len - 1] == ' ')
@@ -849,6 +862,8 @@ void load_hotkeys(const char *config_path) {
 				while (*cmd_part == ' ')
 					cmd_part++;
 				snprintf(pending_command, sizeof(pending_command), "%s", cmd_part);
+				pending_hotkey_indent = indent;
+				offset = strlen(pending_command);
 				continue;
 			}
 		}
@@ -864,8 +879,15 @@ void load_hotkeys(const char *config_path) {
 					pending_command[0] = '\0';
 					pending_hotkey_indent = 0;
 				} else {
-					snprintf(pending_command, sizeof(pending_command), "%s", content_start);
-					offset = 0;
+					if (pending_command[0] != '\0') {
+						size_t cur_len = strlen(pending_command);
+						size_t rem = sizeof(pending_command) - cur_len - 1;
+						if (rem > 0)
+							snprintf(pending_command + cur_len, rem, " %s", content_start);
+					} else {
+						snprintf(pending_command, sizeof(pending_command), "%s", content_start);
+					}
+					offset = strlen(pending_command);
 					continue;
 				}
 			}
