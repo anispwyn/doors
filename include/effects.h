@@ -55,7 +55,7 @@ typedef struct effects_output_t {
 
 	be_output_state_t be_state;
 
-	be_effect_resource_t frame_capture;
+	be_effect_resource_t frame_capture, combined_frame_capture;
 
 	struct wlr_buffer *mica_buf;
 	uint64_t mica_native[2];

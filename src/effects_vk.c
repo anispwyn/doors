@@ -7,25 +7,27 @@
 #ifdef WLR_HAS_VULKAN_RENDERER
 
 #include <shaderc/shaderc.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include <time.h>
 #include <vulkan/vulkan.h>
 #include <wlr/render/allocator.h>
+#include <wlr/render/dmabuf.h>
 #include <wlr/render/drm_format_set.h>
+#include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/vulkan.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/types/wlr_buffer.h>
-
-#include "vk_grayscale_frag_src.h"
-#include "vk_invert_frag_src.h"
-#include "vk_nightlight_frag_src.h"
-#include "vk_sepia_frag_src.h"
+#include <wlr/util/log.h>
 
 const struct wlr_drm_format_set *wlr_renderer_get_render_formats(struct wlr_renderer *renderer);
 
 #include "vk_blit_frag_src.h"
+#include "vk_grayscale_frag_src.h"
+#include "vk_invert_frag_src.h"
 #include "vk_blur_acrylic_frag_src.h"
 #include "vk_blur_box_h_frag_src.h"
 #include "vk_blur_box_v_frag_src.h"
@@ -39,6 +41,8 @@ const struct wlr_drm_format_set *wlr_renderer_get_render_formats(struct wlr_rend
 #include "vk_border_corner_mask_frag_src.h"
 #include "vk_border_frag_src.h"
 #include "vk_effect_tex_vert_src.h"
+#include "vk_nightlight_frag_src.h"
+#include "vk_sepia_frag_src.h"
 #include "vk_shadow_frag_src.h"
 
 struct vk_image {
@@ -53,7 +57,8 @@ struct vk_image {
 struct vk_fbo {
 	struct vk_image img;
 	VkFramebuffer fb;
-	struct wlr_texture *tex; // owning reference to the wlr_texture wrapping the buffer
+	struct wlr_texture *tex; // borrowed/owned texture reference (dmabuf buffers)
+	struct vk_shared_buffer *owner; // set when img is borrowed from a shared dmabuf buffer
 };
 
 union vk_push_data {
@@ -149,6 +154,8 @@ struct vk_border_ubo {
 	float gradient_lerp;
 };
 
+struct vk_shared_buffer;
+
 struct vk_data {
 	VkInstance instance;
 	VkPhysicalDevice phys_dev;
@@ -159,6 +166,9 @@ struct vk_data {
 	VkCommandPool cmd_pool;
 	VkCommandBuffer frame_cb;
 	VkCommandBuffer frame_cb_bufs[3];
+	PFN_vkGetMemoryFdKHR vkGetMemoryFdKHR;
+	PFN_vkGetImageDrmFormatModifierPropertiesEXT vkGetImageDrmFormatModifierPropertiesEXT;
+
 	VkRenderPass render_pass;
 	VkRenderPass no_clear_render_pass;
 	VkRenderPass overlay_render_pass;
@@ -224,10 +234,12 @@ struct vk_data {
 	int frame_slot;
 	bool frame_dirty;
 	bool cb_begun;
+	bool cb_pending; // frame_cb submitted, fence not waited yet
 
 	VkImageView deferred_views[3][64];
 	int n_deferred_views[3];
 
+	struct wl_list pending_sb_destroys; // vk_shared_buffer.pending_link
 	struct vk_fbo *pending_fbo_destroys[256];
 	int n_pending_fbo_destroys;
 
@@ -394,7 +406,7 @@ static int vk_find_mem_type(VkPhysicalDevice phys_dev, VkMemoryPropertyFlags fla
 	return -1;
 }
 
-static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage,
+static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage, bool exportable,
 		struct vk_image *out) {
 	VkImageCreateInfo ci = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
@@ -408,8 +420,83 @@ static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage,
 		.usage = usage,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 	};
+	VkExternalMemoryImageCreateInfo eimg = {
+		.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
+		.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+	};
+	if (exportable) {
+		VkDrmFormatModifierPropertiesList2EXT mlist = {
+			.sType = VK_STRUCTURE_TYPE_DRM_FORMAT_MODIFIER_PROPERTIES_LIST_2_EXT,
+		};
+		VkFormatProperties2 fprops = {
+			.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2,
+			.pNext = &mlist,
+		};
+		vkGetPhysicalDeviceFormatProperties2(vk->phys_dev, fmt, &fprops);
+		bool prefer_linear = false;
+		bool have_any = false;
+		uint64_t fallback_mod = 0;
+		if (mlist.drmFormatModifierCount > 0 && mlist.drmFormatModifierCount <= 64) {
+			VkDrmFormatModifierProperties2EXT *props = calloc(mlist.drmFormatModifierCount, sizeof(*props));
+			if (props) {
+				mlist.pDrmFormatModifierProperties = props;
+				vkGetPhysicalDeviceFormatProperties2(vk->phys_dev, fmt, &fprops);
+				for (uint32_t i = 0; i < mlist.drmFormatModifierCount; i++) {
+					if (props[i].drmFormatModifierPlaneCount != 1)
+						continue; // we export one-plane dmabufs
+					VkPhysicalDeviceImageDrmFormatModifierInfoEXT modinfo = {
+						.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_DRM_FORMAT_MODIFIER_INFO_EXT,
+						.drmFormatModifier = props[i].drmFormatModifier,
+					};
+					VkPhysicalDeviceImageFormatInfo2 pinfo = {
+						.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2,
+						.format = fmt,
+						.type = VK_IMAGE_TYPE_2D,
+						.tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT,
+						.usage = usage,
+						.pNext = &modinfo,
+					};
+					VkImageFormatProperties2 iprops = {
+						.sType = VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2,
+					};
+					if (vkGetPhysicalDeviceImageFormatProperties2(vk->phys_dev, &pinfo, &iprops) != VK_SUCCESS)
+						continue;
+					if (props[i].drmFormatModifier == (uint64_t)DRM_FORMAT_MOD_LINEAR)
+						prefer_linear = true;
+					if (!have_any) {
+						fallback_mod = props[i].drmFormatModifier;
+						have_any = true;
+					}
+				}
+				free(props);
+			}
+		}
+		if (!have_any) {
+			wlr_log(WLR_INFO, "vk: no single-plane modifier supports fmt=%d usage=0x%x", fmt, usage);
+			return false;
+		}
+		uint64_t want = prefer_linear ? (uint64_t)DRM_FORMAT_MOD_LINEAR : fallback_mod;
+
+		VkImageDrmFormatModifierListCreateInfoEXT mod_info = {
+			.sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_LIST_CREATE_INFO_EXT,
+			.drmFormatModifierCount = 1,
+			.pDrmFormatModifiers = &want,
+		};
+		ci.tiling = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
+		mod_info.pNext = &eimg;
+		ci.pNext = &mod_info;
+		if (vkCreateImage(vk->device, &ci, NULL, &out->image) != VK_SUCCESS) {
+			wlr_log(WLR_INFO, "vk: modifier image creation failed (fmt=%d usage=0x%x mod=0x%llx)", fmt, usage,
+				(unsigned long long)want);
+			return false;
+		}
+		goto created;
+	}
 	if (vkCreateImage(vk->device, &ci, NULL, &out->image) != VK_SUCCESS)
 		return false;
+
+created:
+	;
 
 	VkMemoryRequirements mr;
 	vkGetImageMemoryRequirements(vk->device, out->image, &mr);
@@ -419,6 +506,12 @@ static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage,
 		.memoryTypeIndex = vk_find_mem_type(vk->phys_dev, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			mr.memoryTypeBits),
 	};
+	VkExportMemoryAllocateInfo emai = {
+		.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+		.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+	};
+	if (exportable)
+		emai.pNext = ai.pNext, ai.pNext = &emai;
 	if (vkAllocateMemory(vk->device, &ai, NULL, &out->memory) != VK_SUCCESS) {
 		vkDestroyImage(vk->device, out->image, NULL);
 		return false;
@@ -442,25 +535,27 @@ static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage,
 	return true;
 }
 
-static void vk_transition_to_shader_read(VkImage image) {
-	VkImageMemoryBarrier barrier = {
+static void vk_ensure_cb_begun(void);
+
+static void vk_discard(VkImage image) {
+	VkImageMemoryBarrier b = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
 		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
 		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.image = image,
 		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
 		.srcAccessMask = 0,
-		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
+		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT |
+			VK_ACCESS_SHADER_READ_BIT,
 	};
-
 	if (vk->cb_begun) {
 		vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-			VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
+			VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, NULL, 0, NULL, 1, &b);
 		return;
 	}
-
+	// no frame command buffer active: run the discard in a one-off submit
 	VkCommandBufferAllocateInfo cai = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
 		.commandPool = vk->cmd_pool,
@@ -472,20 +567,63 @@ static void vk_transition_to_shader_read(VkImage image) {
 		return;
 	VkCommandBufferBeginInfo bi = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT
+		.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
 	};
 	vkBeginCommandBuffer(cb, &bi);
-	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		0, 0, NULL, 0, NULL, 1, &barrier);
+	vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,
+		0, NULL, 0, NULL, 1, &b);
 	vkEndCommandBuffer(cb);
 	VkSubmitInfo si = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.commandBufferCount = 1,
-		.pCommandBuffers = &cb
+		.pCommandBuffers = &cb,
 	};
 	vkQueueSubmit(vk->queue, 1, &si, VK_NULL_HANDLE);
 	vkQueueWaitIdle(vk->queue);
 	vkFreeCommandBuffers(vk->device, vk->cmd_pool, 1, &cb);
+}
+
+static void vk_dep(VkImage image, VkAccessFlags src_access, VkPipelineStageFlags src_stage,
+		VkAccessFlags dst_access, VkPipelineStageFlags dst_stage) {
+	VkImageMemoryBarrier b = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+		.srcAccessMask = src_access,
+		.dstAccessMask = dst_access,
+	};
+	vk_ensure_cb_begun();
+	vkCmdPipelineBarrier(vk->frame_cb, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &b);
+}
+
+static void vk_after_draw(VkImage image) {
+	vk_dep(image, VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT);
+}
+
+static void vk_after_transfer_write(VkImage image) {
+	vk_dep(image, VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
+
+static void vk_before_transfer_read(VkImage image) {
+	vk_dep(image,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+		VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+}
+
+static void vk_after_transfer_read(VkImage image) {
+	vk_dep(image, VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
+		VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_WRITE_BIT,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT |
+		VK_PIPELINE_STAGE_TRANSFER_BIT);
 }
 
 static void vk_destroy_image(struct vk_image *img) {
@@ -506,9 +644,9 @@ static void vk_destroy_image(struct vk_image *img) {
 static bool vk_create_fbo(int w, int h, VkFormat fmt, struct vk_fbo *out) {
 	if (!vk_create_image(w, h, fmt,
 		VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
-		| VK_IMAGE_USAGE_TRANSFER_DST_BIT, &out->img))
+		| VK_IMAGE_USAGE_TRANSFER_DST_BIT, false, &out->img))
 		return false;
-	vk_transition_to_shader_read(out->img.image);
+	vk_discard(out->img.image);
 	out->img.state = BE_RESOURCE_SHADER_READ;
 	VkFramebufferCreateInfo fci = {
 		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -532,6 +670,10 @@ static void vk_destroy_fbo(struct vk_fbo *fbo) {
 		fbo->fb = VK_NULL_HANDLE;
 	}
 	vk_destroy_image(&fbo->img);
+	if (fbo->tex) {
+		wlr_texture_destroy(fbo->tex);
+		fbo->tex = NULL;
+	}
 }
 
 static void vk_defer_view(VkImageView view) {
@@ -544,10 +686,15 @@ static void vk_defer_view(VkImageView view) {
 
 static VkImageView vk_lookup_or_create_view(VkImage image);
 static void vk_flush_pending_fbo_destroys(void);
+static void vk_flush_pending_sb_destroys(void);
 
 static void vk_ensure_cb_begun(void) {
 	if (vk->cb_begun)
 		return;
+	if (vk->cb_pending) {
+		vkWaitForFences(vk->device, 1, &vk->frame_fence[vk->frame_slot], VK_TRUE, UINT64_MAX);
+		vk->cb_pending = false;
+	}
 	vk->cb_begun = true;
 	VkCommandBufferBeginInfo bi = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
@@ -556,20 +703,14 @@ static void vk_ensure_cb_begun(void) {
 	vkBeginCommandBuffer(vk->frame_cb, &bi);
 }
 
-static VkImageLayout vk_state_to_layout(enum be_resource_state state);
-static VkAccessFlags vk_state_to_access(enum be_resource_state state);
-static VkPipelineStageFlags vk_state_to_stage(enum be_resource_state state);
-static void vk_transition_image(struct vk_image *img, enum be_resource_state desired);
-
 static void vk_draw_full(VkPipeline pipe, VkImage src_img, struct vk_fbo *dst, int w, int h,
 		VkImage dst_img, const void *pc_data, size_t pc_size, const VkRect2D *scissor,
 		uint32_t n_scissor) {
+	(void)dst_img;
+	if (!dst)
+		return;
 	vk->frame_dirty = true;
 	vk_ensure_cb_begun();
-	if (dst_img != VK_NULL_HANDLE) {
-		vk_transition_image(&dst->img, BE_RESOURCE_COLOR_ATTACHMENT);
-	}
-
 	VkImageView src_view = vk_lookup_or_create_view(src_img);
 	if (src_view == VK_NULL_HANDLE)
 		return;
@@ -594,7 +735,7 @@ static void vk_draw_full(VkPipeline pipe, VkImage src_img, struct vk_fbo *dst, i
 	VkDescriptorImageInfo dii = {
 		.sampler = vk->sampler,
 		.imageView = src_view,
-		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 	};
 	VkWriteDescriptorSet write = {
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -648,14 +789,15 @@ static void vk_draw_full(VkPipeline pipe, VkImage src_img, struct vk_fbo *dst, i
 		vkCmdDraw(vk->frame_cb, 4, 1, 0, 0);
 	}
 	vkCmdEndRenderPass(vk->frame_cb);
-	// Render-pass output is now available for sampling by subsequent effects.
+	vk_after_draw(dst->img.image);
 }
 
 static void vk_draw_full_no_tex(VkPipeline pipe, struct vk_fbo *dst, int w, int h, bool clear,
 		const void *pc_data, size_t pc_size, VkPipelineLayout layout, VkDescriptorSet ds) {
+	if (!dst)
+		return;
 	vk->frame_dirty = true;
 	vk_ensure_cb_begun();
-	vk_transition_image(&dst->img, BE_RESOURCE_COLOR_ATTACHMENT);
 
 	VkRenderPassBeginInfo rp = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
@@ -696,6 +838,7 @@ static void vk_draw_full_no_tex(VkPipeline pipe, struct vk_fbo *dst, int w, int 
 	vkCmdBindPipeline(vk->frame_cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
 	vkCmdDraw(vk->frame_cb, 4, 1, 0, 0);
 	vkCmdEndRenderPass(vk->frame_cb);
+	vk_after_draw(dst->img.image);
 }
 
 static struct vk_fbo *vk_fbo_of(uint64_t h) {
@@ -726,6 +869,7 @@ static struct vk_fbo *vk_ensure_blur_level(be_output_state_t *state, int i, int 
 	lv->native_handle[1] = (uint64_t)fbo->img.image;
 	lv->width = w;
 	lv->height = h;
+	lv->state = BE_RESOURCE_SHADER_READ;
 	return fbo;
 }
 
@@ -745,6 +889,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		return false;
 	vk->wlr_renderer = r;
 	vk->allocator = a;
+	wl_list_init(&vk->pending_sb_destroys);
 
 	if (!wlr_renderer_is_vk(r)) {
 		wlr_log(WLR_INFO, "vk: renderer is not Vulkan");
@@ -758,6 +903,17 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	vk->device = wlr_vk_renderer_get_device(r);
 	vk->queue_family = wlr_vk_renderer_get_queue_family(r);
 	vkGetDeviceQueue(vk->device, vk->queue_family, 0, &vk->queue);
+	vk->vkGetMemoryFdKHR = (PFN_vkGetMemoryFdKHR)vkGetDeviceProcAddr(vk->device, "vkGetMemoryFdKHR");
+	vk->vkGetImageDrmFormatModifierPropertiesEXT =
+		(PFN_vkGetImageDrmFormatModifierPropertiesEXT)vkGetDeviceProcAddr(vk->device,
+		"vkGetImageDrmFormatModifierPropertiesEXT");
+	if (!vk->vkGetMemoryFdKHR) {
+		wlr_log(WLR_ERROR, "vk: vkGetMemoryFdKHR unavailable (dma-buf export unsupported)");
+		vkDestroyCommandPool(vk->device, vk->cmd_pool, NULL);
+		free(vk);
+		vk = NULL;
+		return false;
+	}
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(vk->phys_dev, &props);
 	vk->vendor_id = props.vendorID;
@@ -857,8 +1013,8 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 			.samples = VK_SAMPLE_COUNT_1_BIT,
 			.loadOp = loadOp,
 			.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-			.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+			.initialLayout = VK_IMAGE_LAYOUT_GENERAL,
+			.finalLayout = VK_IMAGE_LAYOUT_GENERAL,
 		};
 		rpci.pAttachments = &att;
 		rpci.dependencyCount = 2;
@@ -1266,6 +1422,7 @@ static void vk_fini(void) {
 	if (vk->cb_begun)
 		vkEndCommandBuffer(vk->frame_cb);
 	vkQueueWaitIdle(vk->queue);
+	vk_flush_pending_sb_destroys();
 	vk_flush_pending_fbo_destroys();
 
 	if (vk->screen_shader_pipe) {
@@ -1378,18 +1535,23 @@ static void vk_fini(void) {
 static bool vk_output_init(be_output_state_t *state, int width, int height, int blur_w,
 		int blur_h) {
 	struct vk_fbo *capture = calloc(1, sizeof(*capture));
+	struct vk_fbo *combined = calloc(1, sizeof(*combined));
 	struct vk_fbo *ping = calloc(1, sizeof(*ping));
 	struct vk_fbo *pong = calloc(1, sizeof(*pong));
-	if (!capture || !ping || !pong) {
+	if (!capture || !combined || !ping || !pong) {
 		free(capture);
+		free(combined);
 		free(ping);
 		free(pong);
 		return false;
 	}
 	if (!vk_create_fbo(blur_w, blur_h, vk->vk_fmt, capture) || !vk_create_fbo(blur_w, blur_h,
-			vk->vk_fmt, ping) || !vk_create_fbo(blur_w, blur_h, vk->vk_fmt, pong)) {
+			vk->vk_fmt, combined) || !vk_create_fbo(blur_w, blur_h, vk->vk_fmt,
+			ping) || !vk_create_fbo(blur_w, blur_h, vk->vk_fmt, pong)) {
 		vk_destroy_fbo(capture);
 		free(capture);
+		vk_destroy_fbo(combined);
+		free(combined);
 		vk_destroy_fbo(ping);
 		free(ping);
 		vk_destroy_fbo(pong);
@@ -1402,6 +1564,12 @@ static bool vk_output_init(be_output_state_t *state, int width, int height, int 
 	state->capture.height = blur_h;
 	state->capture.state = BE_RESOURCE_SHADER_READ;
 	state->capture.owned = true;
+	state->combined_capture.native_handle[0] = (uint64_t)(intptr_t)combined;
+	state->combined_capture.native_handle[1] = (uint64_t)combined->img.image;
+	state->combined_capture.width = blur_w;
+	state->combined_capture.height = blur_h;
+	state->combined_capture.state = BE_RESOURCE_SHADER_READ;
+	state->combined_capture.owned = true;
 	state->ping.native_handle[0] = (uint64_t)(intptr_t)ping;
 	state->ping.native_handle[1] = (uint64_t)ping->img.image;
 	state->ping.width = blur_w;
@@ -1412,16 +1580,28 @@ static bool vk_output_init(be_output_state_t *state, int width, int height, int 
 	state->pong.width = blur_w;
 	state->pong.height = blur_h;
 	state->pong.state = BE_RESOURCE_SHADER_READ;
+	struct vk_fbo *scratch = calloc(1, sizeof(*scratch));
+	if (!scratch || !vk_create_fbo(blur_w, blur_h, vk->vk_fmt, scratch)) {
+		vk_destroy_fbo(scratch);
+		free(scratch);
+		return false;
+	}
+	state->blur_scratch.native_handle[0] = (uint64_t)(intptr_t)scratch;
+	state->blur_scratch.native_handle[1] = (uint64_t)scratch->img.image;
+	state->blur_scratch.width = blur_w;
+	state->blur_scratch.height = blur_h;
+	state->blur_scratch.state = BE_RESOURCE_SHADER_READ;
+	state->blur_scratch.owned = true;
 	vk->blur_w = blur_w;
 	vk->blur_h = blur_h;
 
 	struct vk_image *staging = calloc(1, sizeof(struct vk_image));
 	if (!staging || !vk_create_image(width, height, VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, staging)) {
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false, staging)) {
 		free(staging);
 		return false;
 	}
-	vk_transition_to_shader_read(staging->image);
+	vk_discard(staging->image);
 	staging->state = BE_RESOURCE_SHADER_READ;
 	state->staging.native_handle[0] = 0;
 	state->staging.native_handle[1] = (uint64_t)(intptr_t)staging;
@@ -1448,13 +1628,19 @@ static void vk_output_fini(be_output_state_t *state) {
 		return;
 	vkQueueWaitIdle(vk->queue);
 	struct vk_fbo *capture = vk_fbo_of(state->capture.native_handle[0]);
+	struct vk_fbo *combined = vk_fbo_of(state->combined_capture.native_handle[0]);
 	struct vk_fbo *ping = vk_fbo_of(state->ping.native_handle[0]);
 	struct vk_fbo *pong = vk_fbo_of(state->pong.native_handle[0]);
+	struct vk_fbo *scratch = vk_fbo_of(state->blur_scratch.native_handle[0]);
 	struct vk_fbo *ss = vk_fbo_of(state->screen_shader.native_handle[0]);
 	struct vk_image *staging = (struct vk_image *)(intptr_t)state->staging.native_handle[1];
 	if (capture) {
 		vk_destroy_fbo(capture);
 		free(capture);
+	}
+	if (combined) {
+		vk_destroy_fbo(combined);
+		free(combined);
 	}
 	if (ping) {
 		vk_destroy_fbo(ping);
@@ -1463,6 +1649,10 @@ static void vk_output_fini(be_output_state_t *state) {
 	if (pong) {
 		vk_destroy_fbo(pong);
 		free(pong);
+	}
+	if (scratch) {
+		vk_destroy_fbo(scratch);
+		free(scratch);
 	}
 	if (ss) {
 		vk_destroy_fbo(ss);
@@ -1474,8 +1664,10 @@ static void vk_output_fini(be_output_state_t *state) {
 	}
 	vk_destroy_blur_levels(state);
 	memset(&state->capture, 0, sizeof(state->capture));
+	memset(&state->combined_capture, 0, sizeof(state->combined_capture));
 	memset(&state->ping, 0, sizeof(state->ping));
 	memset(&state->pong, 0, sizeof(state->pong));
+	memset(&state->blur_scratch, 0, sizeof(state->blur_scratch));
 	memset(&state->staging, 0, sizeof(state->staging));
 	memset(&state->screen_shader, 0, sizeof(state->screen_shader));
 }
@@ -1486,60 +1678,178 @@ static void vk_output_resize(be_output_state_t *state, int width, int height, in
 	vk_output_init(state, width, height, blur_w, blur_h);
 }
 
+struct vk_shared_buffer {
+	struct wlr_buffer base;
+	struct vk_image img;
+	struct vk_fbo *fbo;
+	int dmabuf_fd;
+	uint32_t dmabuf_offset;
+	uint32_t dmabuf_stride;
+	uint64_t dmabuf_modifier;
+	struct wl_list pending_link; // vk.pending_sb_destroys
+};
+
+static bool vk_shared_get_dmabuf(struct wlr_buffer *wlr_buf,
+		struct wlr_dmabuf_attributes *attribs) {
+	struct vk_shared_buffer *sb = wl_container_of(wlr_buf, sb, base);
+	int drm_fmt = DRM_FORMAT_ARGB8888;
+	if (vk->vk_fmt == VK_FORMAT_R8G8B8A8_UNORM)
+		drm_fmt = DRM_FORMAT_ABGR8888;
+
+	if (sb->dmabuf_fd < 0) {
+		int fd = -1;
+		VkMemoryGetFdInfoKHR gfd = {
+			.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
+			.memory = sb->img.memory,
+			.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+		};
+		if (vk->vkGetMemoryFdKHR(vk->device, &gfd, &fd) != VK_SUCCESS || fd < 0) {
+			wlr_log(WLR_ERROR, "vk: shared get_dmabuf: vkGetMemoryFdKHR failed");
+			return false;
+		}
+
+		// modifier-tiled images require the MEMORY_PLANE aspect for layout queries
+		VkSubresourceLayout layout;
+		VkImageSubresource sub = {
+			vk->vkGetImageDrmFormatModifierPropertiesEXT ? VK_IMAGE_ASPECT_MEMORY_PLANE_0_BIT_EXT :
+				VK_IMAGE_ASPECT_COLOR_BIT,
+			0,
+			0
+		};
+		vkGetImageSubresourceLayout(vk->device, sb->img.image, &sub, &layout);
+		sb->dmabuf_fd = fd;
+		sb->dmabuf_offset = (uint32_t)layout.offset;
+		sb->dmabuf_stride = (uint32_t)layout.rowPitch;
+		sb->dmabuf_modifier = DRM_FORMAT_MOD_LINEAR;
+
+		// report the modifier the image was actually created with
+		if (vk->vkGetImageDrmFormatModifierPropertiesEXT) {
+			VkImageDrmFormatModifierPropertiesEXT mprops = {
+				.sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_PROPERTIES_EXT,
+			};
+			if (vk->vkGetImageDrmFormatModifierPropertiesEXT(vk->device, sb->img.image,
+				&mprops) == VK_SUCCESS)
+				sb->dmabuf_modifier = (uint64_t)mprops.drmFormatModifier;
+		}
+	}
+
+	attribs->n_planes = 1;
+	attribs->fd[0] = sb->dmabuf_fd;
+	attribs->modifier = sb->dmabuf_modifier;
+	attribs->format = drm_fmt;
+	attribs->width = sb->img.width;
+	attribs->height = sb->img.height;
+	attribs->offset[0] = sb->dmabuf_offset;
+	attribs->offset[1] = attribs->offset[2] = attribs->offset[3] = 0;
+	attribs->stride[0] = sb->dmabuf_stride;
+	attribs->stride[1] = attribs->stride[2] = attribs->stride[3] = 0;
+	attribs->fd[1] = attribs->fd[2] = attribs->fd[3] = -1;
+	return true;
+}
+
+static void vk_flush_pending_fbo_destroys(void);
+static void vk_flush_pending_sb_destroys(void);
+static void vk_free_fbo_resources(struct vk_fbo *fbo);
+
+static void vk_free_fbo_resources(struct vk_fbo *fbo);
+static void vk_flush_pending_fbo_destroys(void);
+static void vk_flush_pending_sb_destroys(void);
+static void vk_shared_destroy(struct wlr_buffer *wlr_buf);
+
+static void vk_flush_pending_sb_destroys(void) {
+	while (!wl_list_empty(&vk->pending_sb_destroys)) {
+		struct vk_shared_buffer *sb = wl_container_of(vk->pending_sb_destroys.next, sb, pending_link);
+		wl_list_remove(&sb->pending_link);
+		wl_list_init(&sb->pending_link);
+		vk_shared_destroy(&sb->base);
+	}
+}
+
+static void vk_shared_destroy(struct wlr_buffer *wlr_buf) {
+	struct vk_shared_buffer *sb = wl_container_of(wlr_buf, sb, base);
+	wl_list_remove(&sb->pending_link);
+	wl_list_init(&sb->pending_link);
+	if (!vk) {
+		if (sb->dmabuf_fd >= 0)
+			close(sb->dmabuf_fd);
+		free(sb);
+		return;
+	}
+	if (vk->cb_begun) {
+		wl_list_insert(vk->pending_sb_destroys.prev, &sb->pending_link);
+		return;
+	}
+	if (sb->fbo) {
+		vk_flush_pending_fbo_destroys();
+		vkQueueWaitIdle(vk->queue);
+		// the flush above may already have freed it (pending destroys)
+		if (sb->fbo)
+			vk_free_fbo_resources(sb->fbo);
+		sb->fbo = NULL;
+	}
+	if (sb->img.view) {
+		vkDestroyImageView(vk->device, sb->img.view, NULL);
+		sb->img.view = VK_NULL_HANDLE;
+	}
+	if (sb->img.image) {
+		vkDestroyImage(vk->device, sb->img.image, NULL);
+		sb->img.image = VK_NULL_HANDLE;
+	}
+	if (sb->img.memory) {
+		vkFreeMemory(vk->device, sb->img.memory, NULL);
+		sb->img.memory = VK_NULL_HANDLE;
+	}
+	if (sb->dmabuf_fd >= 0) {
+		close(sb->dmabuf_fd);
+		sb->dmabuf_fd = -1;
+	}
+	free(sb);
+}
+
+static const struct wlr_buffer_impl vk_shared_buffer_impl = {
+	.destroy = vk_shared_destroy,
+	.get_dmabuf = vk_shared_get_dmabuf,
+};
+
 static bool vk_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w, int h,
 		struct wlr_renderer *r, struct wlr_allocator *a) {
+	(void)r;
+	(void)a;
 	if (*buf)
 		return native[0] != 0;
-	if (!vk->render_fmt)
-		return false;
-	struct wlr_buffer *new_buf = wlr_allocator_create_buffer(a, w, h, vk->render_fmt);
-	if (!new_buf)
-		return false;
-
-	struct wlr_texture *tex = wlr_texture_from_buffer(r, new_buf);
-	if (!tex) {
-		wlr_buffer_drop(new_buf);
+	if (!vk->vkGetMemoryFdKHR) {
+		wlr_log(WLR_ERROR, "vk: ensure_buffer: no vkGetMemoryFdKHR");
 		return false;
 	}
 
-	struct wlr_vk_image_attribs vk_attribs;
-	wlr_vk_texture_get_image_attribs(tex, &vk_attribs);
+	struct vk_shared_buffer *sb = calloc(1, sizeof(*sb));
+	if (!sb)
+		return false;
+	sb->dmabuf_fd = -1;
+	wl_list_init(&sb->pending_link);
 
-	struct vk_fbo *fbo = calloc(1, sizeof(struct vk_fbo));
-	if (!fbo) {
-		wlr_texture_destroy(tex);
-		wlr_buffer_drop(new_buf);
+	if (!vk_create_image(w, h, vk->vk_fmt,
+			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true, &sb->img)) {
+		wlr_log(WLR_ERROR, "vk: ensure_buffer: create_image failed");
+		free(sb);
 		return false;
 	}
+	vk_discard(sb->img.image);
+	sb->img.state = BE_RESOURCE_SHADER_READ;
 
-	fbo->img.image = vk_attribs.image;
+	struct vk_fbo *fbo = calloc(1, sizeof(*fbo));
+	if (!fbo)
+		goto error_img;
+
+	fbo->img.image = sb->img.image;
+	fbo->img.view = sb->img.view;
 	fbo->img.memory = VK_NULL_HANDLE;
 	fbo->img.width = w;
 	fbo->img.height = h;
-	fbo->tex = tex;
-
-	vk_transition_to_shader_read(vk_attribs.image);
-
-	VkFormat actual_fmt = vk_attribs.format;
-	if (actual_fmt == VK_FORMAT_UNDEFINED)
-		actual_fmt = vk->vk_fmt;
-	if (actual_fmt != vk->vk_fmt)
-		wlr_log(WLR_DEBUG, "vk: ensure_buffer format mismatch: render_pass=%d actual=%d", vk->vk_fmt,
-			actual_fmt);
-
-	VkImageViewCreateInfo vci = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		.image = vk_attribs.image,
-		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		.format = actual_fmt,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-	};
-	if (vkCreateImageView(vk->device, &vci, NULL, &fbo->img.view) != VK_SUCCESS) {
-		wlr_texture_destroy(tex);
-		free(fbo);
-		wlr_buffer_drop(new_buf);
-		return false;
-	}
+	fbo->img.state = BE_RESOURCE_SHADER_READ;
+	fbo->tex = NULL;
+	fbo->owner = sb;
 
 	VkFramebufferCreateInfo fci = {
 		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -1551,24 +1861,39 @@ static bool vk_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w,
 		.layers = 1,
 	};
 	if (vkCreateFramebuffer(vk->device, &fci, NULL, &fbo->fb) != VK_SUCCESS) {
-		wlr_log(WLR_INFO, "vk: ensure_buffer framebuffer creation failed (format=%d w=%d h=%d)",
-			actual_fmt, w, h);
-		vkDestroyImageView(vk->device, fbo->img.view, NULL);
-		wlr_texture_destroy(tex);
+		wlr_log(WLR_ERROR, "vk: ensure_buffer: vkCreateFramebuffer failed");
 		free(fbo);
-		wlr_buffer_drop(new_buf);
-		return false;
+		goto error_img;
 	}
+	sb->fbo = fbo;
 
-	wlr_buffer_lock(new_buf);
-	wlr_buffer_drop(new_buf);
-	*buf = new_buf;
+	wlr_buffer_init(&sb->base, &vk_shared_buffer_impl, w, h);
+	wlr_buffer_lock(&sb->base);
+	wlr_buffer_drop(&sb->base);
+
+	*buf = &sb->base;
 	native[0] = (uint64_t)(intptr_t)fbo;
 	native[1] = (uint64_t)fbo->img.image;
 	return true;
+
+error_img:
+	vk_destroy_image(&sb->img);
+	free(sb);
+	return false;
 }
 
 static void vk_free_fbo_resources(struct vk_fbo *fbo) {
+	if (fbo->owner) {
+		if (fbo->fb) {
+			vkDestroyFramebuffer(vk->device, fbo->fb, NULL);
+			fbo->fb = VK_NULL_HANDLE;
+		}
+		if (fbo->owner->fbo == fbo)
+			fbo->owner->fbo = NULL;
+		fbo->owner = NULL;
+		free(fbo);
+		return;
+	}
 	if (fbo->img.view) {
 		vkDestroyImageView(vk->device, fbo->img.view, NULL);
 		fbo->img.view = VK_NULL_HANDLE;
@@ -1594,12 +1919,17 @@ static void vk_destroy_buffer(struct wlr_buffer *buf, uint64_t native[2]) {
 				vk->pending_fbo_destroys[vk->n_pending_fbo_destroys++] = fbo;
 			else
 				vk_free_fbo_resources(fbo);
+		} else if (vk->cb_pending) {
+			if (vk->n_pending_fbo_destroys < 256)
+				vk->pending_fbo_destroys[vk->n_pending_fbo_destroys++] = fbo;
+			else
+				vk_free_fbo_resources(fbo);
 		} else {
 			vkQueueWaitIdle(vk->queue);
 			vk_free_fbo_resources(fbo);
 		}
+		wlr_buffer_unlock(buf);
 	}
-	wlr_buffer_unlock(buf);
 	native[0] = native[1] = 0;
 }
 
@@ -1615,7 +1945,6 @@ static void vk_flush_pending_fbo_destroys(void) {
 static void vk_frame_begin(void) {
 	if (!vk)
 		return;
-
 	vk->frame_slot = (vk->frame_slot + 1) % 3;
 	int s = vk->frame_slot;
 
@@ -1629,10 +1958,14 @@ static void vk_frame_begin(void) {
 		vkDestroyImageView(vk->device, vk->deferred_views[s][i], NULL);
 	vk->n_deferred_views[s] = 0;
 
+	vk_flush_pending_sb_destroys();
+
 	vk->frame_cb = vk->frame_cb_bufs[s];
 	vk->desc_pool = vk->desc_pool_bufs[s];
 	vk->frame_dirty = false;
 	vk->cb_begun = false;
+	vk->cb_pending = false;
+	vkResetCommandBuffer(vk->frame_cb, 0);
 
 	vkResetDescriptorPool(vk->device, vk->desc_pool, 0);
 	vk->ds_idx[s] = 0;
@@ -1650,6 +1983,7 @@ static void vk_frame_end(void) {
 
 	if (!vk->frame_dirty) {
 		vkResetCommandBuffer(vk->frame_cb, 0);
+		vk->cb_begun = false;
 		vk_flush_pending_fbo_destroys();
 		return;
 	}
@@ -1662,7 +1996,8 @@ static void vk_frame_end(void) {
 		.pCommandBuffers = &vk->frame_cb,
 	};
 	vkQueueSubmit(vk->queue, 1, &si, vk->frame_fence[s]);
-
+	vk->cb_begun = false;
+	vk->cb_pending = true;
 	vk_flush_pending_fbo_destroys();
 }
 
@@ -1675,34 +2010,17 @@ static bool vk_blit(be_effect_resource_t src, be_effect_resource_t dst, int w, i
 	struct vk_fbo *dst_fbo = vk_fbo_of(dst.handle);
 	if (!dst_fbo)
 		return false;
+	struct vk_fbo *dst_blit = dst_fbo;
 
 	VkImage src_img = vk_img_of(src.handle);
 	int n_regions = (scissor && n_scissor > 0) ? n_scissor : 1;
 	float sx = (float)vk->blur_w / (float)w;
 	float sy = (vk->blur_h > 0) ? (float)vk->blur_h / (float)h : sx;
 
-	VkImageMemoryBarrier pre_barriers[2] = {
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			.image = src_img,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
-			.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT
-		},
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			.image = dst_fbo->img.image,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
-			.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT
-		},
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 2, pre_barriers);
+	vk_before_transfer_read(src_img);
+	vk_dep(dst_blit->img.image, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 	for (int i = 0; i < n_regions; i++) {
 		int x1 = scissor ? scissor[i].x1 : 0;
@@ -1729,122 +2047,16 @@ static bool vk_blit(be_effect_resource_t src, be_effect_resource_t dst, int w, i
 				{x2, y2, 1}
 			},
 		};
-		vkCmdBlitImage(vk->frame_cb, src_img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dst_fbo->img.image,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+		vkCmdBlitImage(vk->frame_cb, src_img, VK_IMAGE_LAYOUT_GENERAL, dst_blit->img.image,
+			VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_LINEAR);
 	}
 
-	VkImageMemoryBarrier post_barriers[2] = {
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			.image = src_img,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT
-		},
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			.image = dst_fbo->img.image,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT
-		},
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, post_barriers);
+	vk_after_transfer_write(dst_blit->img.image);
+	vk_after_transfer_read(src_img);
 
 	if (dst_fbo->img.state != BE_RESOURCE_SHADER_READ)
 		dst_fbo->img.state = BE_RESOURCE_SHADER_READ;
 	return true;
-}
-
-static void vk_transition_to_shader_read_after_draw(VkImage image) {
-	VkImageMemoryBarrier barrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		.image = image,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT,
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &barrier);
-}
-
-static VkImageLayout vk_state_to_layout(enum be_resource_state state) {
-	switch (state) {
-	case BE_RESOURCE_SHADER_READ:
-		return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	case BE_RESOURCE_COLOR_ATTACHMENT:
-		return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	case BE_RESOURCE_TRANSFER_SRC:
-		return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-	case BE_RESOURCE_TRANSFER_DST:
-		return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-	default:
-		return VK_IMAGE_LAYOUT_UNDEFINED;
-	}
-}
-
-static VkAccessFlags vk_state_to_access(enum be_resource_state state) {
-	switch (state) {
-	case BE_RESOURCE_SHADER_READ:
-		return VK_ACCESS_SHADER_READ_BIT;
-	case BE_RESOURCE_COLOR_ATTACHMENT:
-		return VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-	case BE_RESOURCE_TRANSFER_SRC:
-		return VK_ACCESS_TRANSFER_READ_BIT;
-	case BE_RESOURCE_TRANSFER_DST:
-		return VK_ACCESS_TRANSFER_WRITE_BIT;
-	default:
-		return 0;
-	}
-}
-
-static VkPipelineStageFlags vk_state_to_stage(enum be_resource_state state) {
-	switch (state) {
-	case BE_RESOURCE_SHADER_READ:
-		return VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-	case BE_RESOURCE_COLOR_ATTACHMENT:
-		return VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-	case BE_RESOURCE_TRANSFER_SRC:
-	case BE_RESOURCE_TRANSFER_DST:
-		return VK_PIPELINE_STAGE_TRANSFER_BIT;
-	default:
-		return VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-	}
-}
-
-static void vk_transition_image(struct vk_image *img, enum be_resource_state desired) {
-	if (!img || img->state == desired)
-		return;
-
-	VkImageLayout old_layout = vk_state_to_layout(img->state);
-	VkImageLayout new_layout = vk_state_to_layout(desired);
-	VkAccessFlags src_access = vk_state_to_access(img->state);
-	VkAccessFlags dst_access = vk_state_to_access(desired);
-	VkPipelineStageFlags src_stage = vk_state_to_stage(img->state);
-	VkPipelineStageFlags dst_stage = vk_state_to_stage(desired);
-
-	VkImageMemoryBarrier barrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.oldLayout = old_layout,
-		.newLayout = new_layout,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = img->image,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.srcAccessMask = src_access,
-		.dstAccessMask = dst_access,
-	};
-
-	vk_ensure_cb_begun();
-	vkCmdPipelineBarrier(vk->frame_cb, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
-	img->state = desired;
 }
 
 static int vk_scissor_boxes(const pixman_box32_t *scissor, int n_scissor, int w, int h,
@@ -1893,9 +2105,11 @@ static bool vk_blur(be_output_state_t *state, be_effect_resource_t src, int src_
 
 	VkImage current = vk_img_of(src_handle);
 	struct vk_fbo *fbo0 = vk_fbo_of(state->ping.native_handle[0]);
-	struct vk_fbo *fbo1 = vk_fbo_of(state->pong.native_handle[0]);
+	struct vk_fbo *fbo1 = vk_fbo_of(state->blur_scratch.native_handle[0] ?
+		state->blur_scratch.native_handle[0] : state->pong.native_handle[0]);
 	VkImage tex0 = vk_img_of(state->ping.native_handle[1]);
-	VkImage tex1 = vk_img_of(state->pong.native_handle[1]);
+	VkImage tex1 = vk_img_of(state->blur_scratch.native_handle[1] ?
+		state->blur_scratch.native_handle[1] : state->pong.native_handle[1]);
 	struct vk_fbo *dst_fbo = dst.valid ? vk_fbo_of(dst.handle) : NULL;
 	VkImage dst_img = dst_fbo ? dst_fbo->img.image : VK_NULL_HANDLE;
 
@@ -1966,7 +2180,7 @@ static bool vk_blur(be_output_state_t *state, be_effect_resource_t src, int src_
 		}
 
 		if (dst.valid) {
-			vk_transition_to_shader_read_after_draw(dst_img);
+			vk_after_draw(dst_img);
 			if (out_resource)
 				*out_resource = (be_effect_resource_t){0};
 		} else {
@@ -2110,7 +2324,7 @@ static bool vk_blur(be_output_state_t *state, be_effect_resource_t src, int src_
 	}
 
 	if (dst.valid) {
-		vk_transition_to_shader_read_after_draw(dst_img);
+		vk_after_draw(dst_img);
 		if (out_resource)
 			*out_resource = (be_effect_resource_t){0};
 	} else {
@@ -2383,18 +2597,6 @@ static bool vk_apply_corner_mask(be_output_state_t *state, be_effect_resource_t 
 		}
 	};
 
-	VkImageMemoryBarrier b = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-		.image = dst_fbo_obj->img.image,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
-		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0, NULL, 1, &b);
-
 	VkRenderPassBeginInfo rp = {
 		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
 		.renderPass = p->pre_blit ? vk->overlay_render_pass : vk->color_clear_render_pass,
@@ -2435,6 +2637,7 @@ static bool vk_apply_corner_mask(be_output_state_t *state, be_effect_resource_t 
 	vkCmdSetScissor(vk->frame_cb, 0, 1, &full_sc);
 	vkCmdDraw(vk->frame_cb, 4, 1, 0, 0);
 	vkCmdEndRenderPass(vk->frame_cb);
+	vk_after_draw(dst_fbo_obj->img.image);
 
 	return true;
 }
@@ -2485,39 +2688,16 @@ static bool vk_capture_readback(struct wlr_buffer *capture_buffer, be_output_sta
 		return false;
 	}
 
-	VkImageLayout src_layout = vk_attribs.layout;
-
 	VkImage result_img = vk_img_of(state->capture.native_handle[1]);
-	if (dst_fbo == vk_fbo_of(state->screen_shader.native_handle[0]))
+	if (dst_fbo == vk_fbo_of(state->combined_capture.native_handle[0]))
+		result_img = vk_img_of(state->combined_capture.native_handle[1]);
+	else if (dst_fbo == vk_fbo_of(state->screen_shader.native_handle[0]))
 		result_img = vk_img_of(state->screen_shader.native_handle[1]);
 
-	VkImageMemoryBarrier src_barrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.oldLayout = src_layout,
-		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = vk_attribs.image,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.srcAccessMask = VK_ACCESS_MEMORY_READ_BIT,
-		.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &src_barrier);
-
-	VkImageMemoryBarrier dst_barrier = {
-		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-		.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = dst_fbo->img.image,
-		.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-		.srcAccessMask = VK_ACCESS_SHADER_READ_BIT,
-		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-		VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &dst_barrier);
+	vk_before_transfer_read(vk_attribs.image);
+	vk_dep(dst_fbo->img.image, VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
 
 	int capture_w = src_w > 0 ? src_w : dst_w;
 	int capture_h = src_h > 0 ? src_h : dst_h;
@@ -2533,31 +2713,11 @@ static bool vk_capture_readback(struct wlr_buffer *capture_buffer, be_output_sta
 			{dst_x + dst_w, dst_y + dst_h, 1}
 		},
 	};
-	vkCmdBlitImage(vk->frame_cb, vk_attribs.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		dst_fbo->img.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR);
+	vkCmdBlitImage(vk->frame_cb, vk_attribs.image, VK_IMAGE_LAYOUT_GENERAL, dst_fbo->img.image,
+		VK_IMAGE_LAYOUT_GENERAL, 1, &region, VK_FILTER_LINEAR);
 
-	VkImageMemoryBarrier post_barriers[2] = {
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			.image = vk_attribs.image,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
-			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT
-		},
-		{
-			.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-			.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			.image = dst_fbo->img.image,
-			.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-			.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
-			.dstAccessMask = VK_ACCESS_SHADER_READ_BIT
-		},
-	};
-	vkCmdPipelineBarrier(vk->frame_cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
-		VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 2, post_barriers);
+	vk_after_transfer_write(dst_fbo->img.image);
+	vk_after_transfer_read(vk_attribs.image);
 	wlr_texture_destroy(tex);
 	out_resource->handle = (uint64_t)result_img;
 	out_resource->width = dst_w;

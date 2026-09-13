@@ -37,7 +37,7 @@ typedef struct {
 } be_effect_resource_t;
 
 typedef struct {
-	be_buffer_t capture;
+	be_buffer_t capture, combined_capture;
 	be_buffer_t ping, pong;
 	be_buffer_t blur_scratch;
 	be_buffer_t staging;

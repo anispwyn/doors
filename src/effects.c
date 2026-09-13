@@ -393,6 +393,8 @@ void effects_output_resize(effects_output_t *ctx, int width, int height, output_
 	ctx->combined_bg_valid = false;
 	ctx->frame_capture.valid = false;
 	ctx->frame_capture.generation = 0;
+	ctx->combined_frame_capture.valid = false;
+	ctx->combined_frame_capture.generation = 0;
 	wlr_output_state_set_custom_mode(&ctx->capture_state, width, height, 0);
 	recreate_capture_swapchains(ctx, width, height);
 
@@ -559,8 +561,8 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 				wlr_scene_output_set_position(ctx->capture_scene_output, -0x7fff, -0x7fff);
 				if (changed)
 					*changed = false;
-				if (ctx->frame_capture.valid)
-					return ctx->frame_capture.valid ? ctx->frame_capture : (be_effect_resource_t){0};
+				if (hide_blur_toplevels ? ctx->frame_capture.valid : ctx->combined_frame_capture.valid)
+					return hide_blur_toplevels ? ctx->frame_capture : ctx->combined_frame_capture;
 			}
 			// when hidden-area damage reaches visible surfaces, the whole damage
 			// must be re-rendered (the parts behind blurred windows changed too)
@@ -583,8 +585,8 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 			wlr_scene_output_set_position(ctx->capture_scene_output, -0x7fff, -0x7fff);
 			if (changed)
 				*changed = false;
-			if (ctx->frame_capture.valid)
-				return ctx->frame_capture.valid ? ctx->frame_capture : (be_effect_resource_t){0};
+			if (hide_blur_toplevels ? ctx->frame_capture.valid : ctx->combined_frame_capture.valid)
+				return hide_blur_toplevels ? ctx->frame_capture : ctx->combined_frame_capture;
 		}
 	}
 
@@ -713,17 +715,29 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 	}
 
 	be_effect_resource_t result = {0};
-	be_effect_resource_t dst = be_buffer_target_from_buffer(&ctx->be_state.capture, 0);
+	// the layer-blur variant (toplevels intentionally visible) gets its own
+	// destination: it must never overwrite the windows-hidden shared backdrop
+	bool combined_variant = !hide_blur_toplevels;
+	be_effect_resource_t dst = be_buffer_target_from_buffer(combined_variant ?
+		&ctx->be_state.combined_capture : &ctx->be_state.capture, 0);
 	effects_backend->capture_readback(cap_state.buffer, &ctx->be_state, dst, region.x, region.y,
 		region.width, region.height, region.x, region.y, region.width, region.height,
 		ctx->backdrop_gen + 1, &result);
 	wlr_output_state_finish(&cap_state);
 
 	if (result.valid) {
-		ctx->frame_capture = result;
-		ctx->shared_bg_valid = !mica_only && hide_blur_toplevels;
-		ctx->combined_bg_valid = !mica_only && !hide_blur_toplevels;
-		ctx->backdrop_gen = ctx->frame_capture.generation;
+		// cache each variant separately: frame_capture (shared, windows hidden)
+		// and combined_frame_capture (layer blur, windows visible) point at
+		// different buffers, so a cache hit can never hand back stale content
+		// from the other variant
+		if (combined_variant) {
+			ctx->combined_frame_capture = result;
+			ctx->combined_bg_valid = !mica_only;
+		} else {
+			ctx->frame_capture = result;
+			ctx->shared_bg_valid = !mica_only;
+		}
+		ctx->backdrop_gen = result.generation;
 		if (changed)
 			*changed = true;
 	}
@@ -2397,6 +2411,41 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 		ctx->blur_gen != ctx->backdrop_gen);
 	bool effects_work = bg_damaged || mica_dirty || blur_stale;
 
+	// one-shot-per-second visibility into the effect trigger conditions
+	// (debug instrument, cheap: a single branch on a cached timestamp)
+	{
+		static int64_t last_diag_ms;
+		struct timespec dts;
+		clock_gettime(CLOCK_MONOTONIC, &dts);
+		int64_t now_ms = (int64_t)dts.tv_sec * 1000 + dts.tv_nsec / 1000000;
+		if (now_ms - last_diag_ms >= 1000) {
+			last_diag_ms = now_ms;
+			int n_blur_nodes = 0;
+			char per_win[256] = "";
+			size_t per_left = sizeof(per_win);
+			toplevel_t *tl;
+			wl_list_for_each(tl, &server.toplevels, link) {
+				n_blur_nodes += (int)blur_count(tl->blur);
+				if (!tl->blur)
+					continue;
+				const char *appid = tl->node && tl->node->client ? tl->node->client->app_id : "?";
+				int appended = snprintf(per_win + (sizeof(per_win) - per_left), per_left,
+					"%s%s(bc=%zu,mica=%d,acr=%d,shown=%d)", per_win[0] ? " " : "",
+					appid ? appid : "?", blur_count(tl->blur), !!tl->blur->mica_node,
+					!!tl->blur->acrylic_node,
+					tl->node && tl->node->client ? !!tl->node->client->flags.shown : 0);
+				if (appended > 0 && (size_t)appended < per_left)
+					per_left -= (size_t)appended;
+				else
+					per_left = 0;
+			}
+			wlr_log(WLR_INFO,
+				"effects diag: work=%d bg_damaged=%d mica_dirty=%d blur_stale=%d has_win_blur=%d "
+				"has_layer_blur=%d blur_nodes=%d unified=%d [%s]", effects_work, bg_damaged, mica_dirty,
+					blur_stale, has_window_blur, has_layer_blur, n_blur_nodes, unified, per_win);
+		}
+	}
+
 	if (!effects_work && !effects_border_pending(output) && !screen_shader_enabled)
 		return;
 
@@ -2495,12 +2544,16 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 		}
 	}
 
-	// apply mica before corner masks so its bg capture (into the shared pong
-	// buffer) isn't invalidated by the per-window corner-mask captures
-	if (mica_dirty) {
-		be_effect_resource_t mica_bg = capture_bg_to_tex1(output, ctx, true, NULL, NULL);
+	// apply mica before corner masks; rebuild whenever the backdrop changed
+	// (mica windows show the live desktop behind them, not a one-shot capture:
+	// they map after startup, when the one-shot capture was still empty/black)
+	if (mica_dirty || (mica_enabled && bg_damaged)) {
+		be_effect_resource_t mica_bg = shared_bg.valid ? shared_bg : capture_bg_to_tex1(output, ctx, true,
+			NULL, NULL);
 		if (mica_bg.valid)
 			rebuild_mica(output, mica_bg);
+		else
+			ctx->mica_dirty = false;
 	}
 
 	// apply corner masks and blur if needed

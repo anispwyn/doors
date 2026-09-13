@@ -14,6 +14,8 @@
 #include <wlr/interfaces/wlr_output.h>
 #include <wlr/render/allocator.h>
 #include <wlr/render/pass.h>
+#include <wlr/render/swapchain.h>
+#include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_renderer.h>
 #include <wlr/render/wlr_texture.h>
 #include <wlr/types/wlr_buffer.h>
@@ -28,6 +30,10 @@ typedef struct image_copy_source_t {
 	struct wlr_ext_image_capture_source_v1 base;
 	struct wlr_output *output;
 	struct wlr_buffer *last_buffer;
+	/* private swapchain so captures never consume the real output's 4
+	 * swapchain slots: exhausting those leaves the output with no free
+	 * back buffer and the whole screen renders black */
+	struct wlr_swapchain *swapchain;
 	struct wl_listener output_commit;
 	struct wl_listener output_destroy;
 	struct wl_listener base_destroy;
@@ -50,6 +56,10 @@ static void output_source_destroy_internal(image_copy_source_t *src) {
 
 	if (src->last_buffer)
 		wlr_buffer_unlock(src->last_buffer);
+	if (src->swapchain) {
+		wlr_swapchain_destroy(src->swapchain);
+		src->swapchain = NULL;
+	}
 
 	free(src->base.shm_formats);
 	free(src);
@@ -417,7 +427,29 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 		struct wlr_output_state tmp_state;
 		wlr_output_state_init(&tmp_state);
 		wlr_output_state_set_enabled(&tmp_state, true);
-		if (!wlr_scene_output_build_state(scene_output, &tmp_state, NULL)) {
+		if (!src->swapchain || src->swapchain->width != output->width ||
+				src->swapchain->height != output->height) {
+			if (src->swapchain)
+				wlr_swapchain_destroy(src->swapchain);
+			const struct wlr_drm_format_set *fmts = wlr_renderer_get_render_formats(output->renderer);
+			const struct wlr_drm_format *fmt = fmts ? wlr_drm_format_set_get(fmts,
+				output->render_format) : NULL;
+			if (!fmt) {
+				wlr_log(WLR_DEBUG, "ext-copy-capture: no render format for swapchain");
+				wlr_output_state_finish(&tmp_state);
+				goto out;
+			}
+			src->swapchain = wlr_swapchain_create(server.allocator, output->width, output->height, fmt);
+			if (!src->swapchain) {
+				wlr_log(WLR_DEBUG, "ext-copy-capture: swapchain creation failed");
+				wlr_output_state_finish(&tmp_state);
+				goto out;
+			}
+		}
+		struct wlr_scene_output_state_options opts = {
+			.swapchain = src->swapchain,
+		};
+		if (!wlr_scene_output_build_state(scene_output, &tmp_state, &opts)) {
 			wlr_log(WLR_DEBUG, "ext-copy-capture: scene build failed");
 			wlr_output_state_finish(&tmp_state);
 			goto out;

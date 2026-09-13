@@ -649,6 +649,8 @@ static bool gles2_output_init(be_output_state_t *state, int width, int height, i
 	egl_make_current();
 	bool ok = create_fbo(blur_w, blur_h, (GLuint *)&state->capture.native_handle[0],
 		(GLuint *)&state->capture.native_handle[1]) && create_fbo(blur_w, blur_h,
+		(GLuint *)&state->combined_capture.native_handle[0],
+		(GLuint *)&state->combined_capture.native_handle[1]) && create_fbo(blur_w, blur_h,
 		(GLuint *)&state->ping.native_handle[0],
 		(GLuint *)&state->ping.native_handle[1]) && create_fbo(blur_w, blur_h,
 		(GLuint *)&state->pong.native_handle[0],
@@ -658,6 +660,10 @@ static bool gles2_output_init(be_output_state_t *state, int width, int height, i
 	state->capture.height = blur_h;
 	state->capture.state = BE_RESOURCE_SHADER_READ;
 	state->capture.owned = true;
+	state->combined_capture.width = blur_w;
+	state->combined_capture.height = blur_h;
+	state->combined_capture.state = BE_RESOURCE_SHADER_READ;
+	state->combined_capture.owned = true;
 	state->ping.width = blur_w;
 	state->ping.height = blur_h;
 	state->ping.state = BE_RESOURCE_SHADER_READ;
@@ -692,6 +698,8 @@ static void gles2_output_fini(be_output_state_t *state) {
 	egl_make_current();
 	destroy_fbo((GLuint *)&state->capture.native_handle[0],
 		(GLuint *)&state->capture.native_handle[1]);
+	destroy_fbo((GLuint *)&state->combined_capture.native_handle[0],
+		(GLuint *)&state->combined_capture.native_handle[1]);
 	destroy_fbo((GLuint *)&state->ping.native_handle[0], (GLuint *)&state->ping.native_handle[1]);
 	destroy_fbo((GLuint *)&state->pong.native_handle[0], (GLuint *)&state->pong.native_handle[1]);
 	destroy_fbo((GLuint *)&state->blur_scratch.native_handle[0],
@@ -702,6 +710,7 @@ static void gles2_output_fini(be_output_state_t *state) {
 		(GLuint *)&state->staging.native_handle[1]);
 	gles2_destroy_blur_levels(state);
 	memset(&state->capture, 0, sizeof(state->capture));
+	memset(&state->combined_capture, 0, sizeof(state->combined_capture));
 	egl_unset_current();
 }
 
@@ -710,6 +719,8 @@ static void gles2_output_resize(be_output_state_t *state, int width, int height,
 	egl_make_current();
 	destroy_fbo((GLuint *)&state->capture.native_handle[0],
 		(GLuint *)&state->capture.native_handle[1]);
+	destroy_fbo((GLuint *)&state->combined_capture.native_handle[0],
+		(GLuint *)&state->combined_capture.native_handle[1]);
 	destroy_fbo((GLuint *)&state->ping.native_handle[0], (GLuint *)&state->ping.native_handle[1]);
 	destroy_fbo((GLuint *)&state->pong.native_handle[0], (GLuint *)&state->pong.native_handle[1]);
 	destroy_fbo((GLuint *)&state->blur_scratch.native_handle[0],
@@ -720,8 +731,11 @@ static void gles2_output_resize(be_output_state_t *state, int width, int height,
 		(GLuint *)&state->staging.native_handle[1]);
 	gles2_destroy_blur_levels(state);
 	memset(&state->capture, 0, sizeof(state->capture));
+	memset(&state->combined_capture, 0, sizeof(state->combined_capture));
 	create_fbo(blur_w, blur_h, (GLuint *)&state->capture.native_handle[0],
 		(GLuint *)&state->capture.native_handle[1]);
+	create_fbo(blur_w, blur_h, (GLuint *)&state->combined_capture.native_handle[0],
+		(GLuint *)&state->combined_capture.native_handle[1]);
 	create_fbo(blur_w, blur_h, (GLuint *)&state->ping.native_handle[0],
 		(GLuint *)&state->ping.native_handle[1]);
 	create_fbo(blur_w, blur_h, (GLuint *)&state->pong.native_handle[0],
@@ -732,6 +746,10 @@ static void gles2_output_resize(be_output_state_t *state, int width, int height,
 	state->capture.height = blur_h;
 	state->capture.state = BE_RESOURCE_SHADER_READ;
 	state->capture.owned = true;
+	state->combined_capture.width = blur_w;
+	state->combined_capture.height = blur_h;
+	state->combined_capture.state = BE_RESOURCE_SHADER_READ;
+	state->combined_capture.owned = true;
 	state->ping.width = blur_w;
 	state->ping.height = blur_h;
 	state->pong.width = blur_w;
@@ -1260,6 +1278,12 @@ static bool gles2_capture_readback(struct wlr_buffer *capture_buffer, be_output_
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+	GLuint shared_tex = (GLuint)state->capture.native_handle[1];
+	if (dst_fbo == (GLuint)state->combined_capture.native_handle[0])
+		shared_tex = (GLuint)state->combined_capture.native_handle[1];
+	else if (dst_fbo == (GLuint)state->screen_shader.native_handle[0])
+		shared_tex = (GLuint)state->screen_shader.native_handle[1];
+
 	if (attach_type == GL_TEXTURE && attach_name > 0 && g->prog_ext_blit) {
 		glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
 		glViewport(dst_x, dst_y, dst_w, dst_h);
@@ -1269,9 +1293,7 @@ static bool gles2_capture_readback(struct wlr_buffer *capture_buffer, be_output_
 		glUniform1i(g->u_ext_blit.tex, 0);
 		draw_quad();
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		result_tex = (GLuint)state->capture.native_handle[1];
-		if (dst_fbo == state->screen_shader.native_handle[0])
-			result_tex = (GLuint)state->screen_shader.native_handle[1];
+		result_tex = shared_tex;
 	} else if (attach_type == GL_TEXTURE && attach_name > 0) {
 		glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
 		glViewport(dst_x, dst_y, dst_w, dst_h);
@@ -1281,9 +1303,7 @@ static bool gles2_capture_readback(struct wlr_buffer *capture_buffer, be_output_
 		glUniform1i(g->u_blit.tex, 0);
 		draw_quad();
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		result_tex = (GLuint)state->capture.native_handle[1];
-		if (dst_fbo == state->screen_shader.native_handle[0])
-			result_tex = (GLuint)state->screen_shader.native_handle[1];
+		result_tex = shared_tex;
 	} else if (attach_type == GL_RENDERBUFFER) {
 		// resize staging texture to match so blit below is a 1:1 copy
 		if (state->staging.width != src_w || state->staging.height != src_h) {
@@ -1324,9 +1344,7 @@ static bool gles2_capture_readback(struct wlr_buffer *capture_buffer, be_output_
 		glUniform1i(g->u_blit.tex, 0);
 		draw_quad();
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
-		result_tex = (GLuint)state->capture.native_handle[1];
-		if (dst_fbo == state->screen_shader.native_handle[0])
-			result_tex = (GLuint)state->screen_shader.native_handle[1];
+		result_tex = shared_tex;
 	}
 
 	if (!result_tex) {
