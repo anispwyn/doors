@@ -16,7 +16,6 @@
 
 # Layout
 - Better tab grouping (see sway or Hyprland for reference)
-- Undersized toplevels that are tiled will jump in position unexpectedly during resize, and lose their surface clip temporarily if they have one on another axis (observed on protonvpn-app)
 - Better scrolling layout handling (see niri for reference)
 - Fullscreening XWayland clients while using a fractional scale causes them not to take up the full screen (black on right right and bottom)
 - Some toplevels open smaller in height and then take their correct size a frame later

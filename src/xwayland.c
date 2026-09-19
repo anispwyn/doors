@@ -26,6 +26,7 @@
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_ext_foreign_toplevel_list_v1.h>
 #include <wlr/types/wlr_foreign_toplevel_management_v1.h>
+#include <wlr/types/wlr_fractional_scale_v1.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_seat.h>
 #include <wlr/types/wlr_xdg_activation_v1.h>
@@ -661,6 +662,13 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	}
 
 	xwayland_view_apply_disable_decorations(xwayland_view);
+
+	// notify client of scale
+	if (target_monitor && target_monitor->wlr_output && xsurface->surface) {
+		float scale = target_monitor->wlr_output->scale;
+		wlr_fractional_scale_v1_notify_scale(xsurface->surface, scale);
+		wlr_surface_set_preferred_buffer_scale(xsurface->surface, ceil(scale));
+	}
 
 	arrange(target_monitor, target_desktop, true);
 

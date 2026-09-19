@@ -2430,9 +2430,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 					continue;
 				const char *appid = tl->node && tl->node->client ? tl->node->client->app_id : "?";
 				int appended = snprintf(per_win + (sizeof(per_win) - per_left), per_left,
-					"%s%s(bc=%zu,mica=%d,acr=%d,shown=%d)", per_win[0] ? " " : "",
-					appid ? appid : "?", blur_count(tl->blur), !!tl->blur->mica_node,
-					!!tl->blur->acrylic_node,
+					"%s%s(bc=%zu,mica=%d,acr=%d,shown=%d)", per_win[0] ? " " : "", appid ? appid : "?",
+					blur_count(tl->blur), !!tl->blur->mica_node, !!tl->blur->acrylic_node,
 					tl->node && tl->node->client ? !!tl->node->client->flags.shown : 0);
 				if (appended > 0 && (size_t)appended < per_left)
 					per_left -= (size_t)appended;

@@ -11,6 +11,7 @@
 #include "toplevel.h"
 #include "tree.h"
 #include "types.h"
+#include "xwayland.h"
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -352,7 +353,11 @@ static void handle_output_present(struct wl_listener *listener, void *data) {
 void output_request_state(struct wl_listener *listener, void *data) {
 	output_t *output = wl_container_of(listener, output, request_state);
 	struct wlr_output_event_request_state *event = data;
+	float old_scale = output->wlr_output->scale;
 	wlr_output_commit_state(output->wlr_output, event->state);
+	float new_scale = output->wlr_output->scale;
+	if (new_scale != old_scale)
+		output_update_scale(output, new_scale);
 }
 
 static void handle_output_destroy(struct wl_listener *listener, void *data) {
@@ -676,7 +681,19 @@ void output_update_scale(output_t *output, float scale) {
 		node_t *n = toplevel->node;
 		if (n->output && n->output == output) {
 			struct wlr_surface *surface = toplevel->xdg_toplevel->base->surface;
-			wlr_log(WLR_DEBUG, "Notifying toplevel of scale %.2f", scale);
+			wlr_fractional_scale_v1_notify_scale(surface, scale);
+			wlr_surface_set_preferred_buffer_scale(surface, ceil(scale));
+		}
+	}
+
+	// notify all xwayland surfaces on this output
+	xwayland_toplevel_t *xw;
+	wl_list_for_each(xw, &server.xwayland.views, link) {
+		if (!xw->xwayland_surface || !xw->xwayland_surface->surface || !xw->node)
+			continue;
+
+		if (xw->node->output && xw->node->output == output) {
+			struct wlr_surface *surface = xw->xwayland_surface->surface;
 			wlr_fractional_scale_v1_notify_scale(surface, scale);
 			wlr_surface_set_preferred_buffer_scale(surface, ceil(scale));
 		}
@@ -704,6 +721,7 @@ void output_update_scale(output_t *output, float scale) {
 		arrange(output, d, true);
 
 	update_idle_inhibitors(NULL);
+	output_schedule_frame(output);
 }
 
 output_t *output_get_valid(void) {

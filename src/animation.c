@@ -1095,11 +1095,11 @@ bool animation_update_output(output_t *output, struct timespec now) {
 			update_resize_entry(entry);
 
 			if (is_entry_done(entry)) {
-				// remove clip, let normal layout take over
-				if (entry->toplevel && entry->toplevel->content_tree) {
-					wlr_scene_subsurface_tree_set_clip(&entry->toplevel->content_tree->node, NULL);
-				}
 				wlr_scene_node_set_position(&entry->scene_tree->node, entry->to.x, entry->to.y);
+				// re-apply centering, borders, and clip immediately so the
+				// surface doesn't lose its clip until the next client commit
+				if (entry->toplevel)
+					toplevel_center_and_clip_surface(entry->toplevel);
 				wlr_log(WLR_DEBUG, "animation: resize complete entry=%p node=%u", (void *)entry,
 					entry->node ? entry->node->id : 0);
 				wl_list_remove(&entry->link);
