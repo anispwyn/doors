@@ -7,6 +7,7 @@
 #include "server.h"
 #include "tabs.h"
 #include "toplevel.h"
+#include "render_unfocused.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
@@ -218,6 +219,7 @@ void free_node(node_t *n) {
 		tabs_destroy(n);
 
 	if (n->client != NULL) {
+		render_unfocused_client_remove(n->client);
 		n->client->flags.freed = true;
 		free(n->client);
 	}

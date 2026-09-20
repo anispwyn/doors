@@ -818,7 +818,7 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 		}
 	}
 
-	transaction_notify_view_unmapped(toplevel->node);
+	transaction_notify_view_unmapped(n);
 }
 
 void toplevel_commit(struct wl_listener *listener, void *data) {
@@ -973,9 +973,11 @@ void toplevel_destroy(struct wl_listener *listener, void *data) {
 		toplevel->foreign_toplevel = NULL;
 	}
 
+	client_t *client = NULL;
 	if (toplevel->node && toplevel->node->client) {
+		client = toplevel->node->client;
 		animation_cancel_node(toplevel->node);
-		toplevel->node->client->toplevel = NULL;
+		client->toplevel = NULL;
 		toplevel->node = NULL;
 	}
 
@@ -1049,8 +1051,8 @@ void toplevel_destroy(struct wl_listener *listener, void *data) {
 		toplevel->shadow = NULL;
 	}
 
-	if (toplevel->node && toplevel->node->client)
-		render_unfocused_client_remove(toplevel->node->client);
+	if (client)
+		render_unfocused_client_remove(client);
 
 	destroy_borders(&toplevel->border_tree, toplevel->border_rects);
 

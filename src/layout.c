@@ -26,8 +26,8 @@ static void monocle_arrange(output_t *m, desktop_t *d, struct wlr_box available)
 		int wg = compute_window_gap(d);
 		available.x += wg;
 		available.y += wg;
-		available.width -= 2 * wg;
-		available.height -= 2 * wg;
+		available.width -= wg;
+		available.height -= wg;
 	}
 	apply_layout(m, d, d->root, available, available);
 }
