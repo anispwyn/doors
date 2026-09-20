@@ -17,7 +17,6 @@
 # Layout
 - Better tab grouping (see sway or Hyprland for reference)
 - Better scrolling layout handling (see niri for reference)
-- Fullscreening XWayland clients while using a fractional scale causes them not to take up the full screen (black on right right and bottom)
 - Some toplevels open smaller in height and then take their correct size a frame later
 - Layout isn't rearranged on output scale change
 

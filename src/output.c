@@ -191,6 +191,9 @@ static bool output_try_direct_scanout(output_t *output) {
 	if (!surface || !wlr_surface_has_buffer(surface) || !surface->buffer)
 		return false;
 
+	if (surface->current.transform != output->wlr_output->transform)
+		return false;
+
 	struct wlr_buffer *buf = &surface->buffer->base;
 
 	struct wlr_output_state state;
@@ -199,9 +202,14 @@ static bool output_try_direct_scanout(output_t *output) {
 	wlr_buffer_lock(buf);
 	wlr_output_state_set_buffer(&state, buf);
 
+	state.buffer_dst_box.x = 0;
+	state.buffer_dst_box.y = 0;
+	state.buffer_dst_box.width = output->wlr_output->width;
+	state.buffer_dst_box.height = output->wlr_output->height;
+
 	pixman_region32_t damage;
-	pixman_region32_init_rect(&damage, 0, 0, (unsigned int)output->width,
-		(unsigned int)output->height);
+	pixman_region32_init_rect(&damage, 0, 0, (unsigned int)output->wlr_output->width,
+		(unsigned int)output->wlr_output->height);
 	wlr_output_state_set_damage(&state, &damage);
 	pixman_region32_fini(&damage);
 
