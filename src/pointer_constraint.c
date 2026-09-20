@@ -3,12 +3,11 @@
 #include "server.h"
 #include "toplevel.h"
 #include "xwayland.h"
-#include <wlr/types/wlr_xdg_shell.h>
-#include <wlr/xwayland.h>
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
+#include <wlr/types/wlr_xdg_shell.h>
+#include <wlr/xwayland.h>
 
-// wlr_surface->data is never set by doors: the view hangs off the xdg/xwayland surface instead.
 node_t *pointer_constraint_node(struct wlr_surface *surface) {
 	if (surface == NULL)
 		return NULL;
@@ -66,8 +65,7 @@ static void cursor_check_constraint_region(void) {
 				sx = (boxes[0].x1 + boxes[0].x2) / 2.0;
 				sy = (boxes[0].y1 + boxes[0].y2) / 2.0;
 
-				wlr_cursor_warp_closest(server.cursor, NULL, sx + node->rectangle.x,
-					sy + node->rectangle.y);
+				wlr_cursor_warp_closest(server.cursor, NULL, sx + node->rectangle.x, sy + node->rectangle.y);
 			}
 		}
 	}

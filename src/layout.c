@@ -104,8 +104,8 @@ static bool scroller_focus(desktop_t *d, direction_t dir) {
 	return false;
 }
 
-// Pick the leaf of `sub` that is adjacent to `from` in direction `dir`: the one overlapping
-// `from` the most on the perpendicular axis, closest to the shared edge on ties.
+// pick the leaf of `sub` that is adjacent to `from` in direction `dir`: the one overlapping
+// `from` the most on the perpendicular axis, closest to the shared edge on ties
 static node_t *closest_leaf(node_t *sub, node_t *from, direction_t dir) {
 	bool horiz = dir == DIR_WEST || dir == DIR_EAST;
 	struct wlr_box f = from->rectangle;
