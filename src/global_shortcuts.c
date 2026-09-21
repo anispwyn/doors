@@ -1,810 +1,738 @@
 #include "global_shortcuts.h"
-#include "server.h"
 #include "once.h"
-
-#ifdef HAVE_SYSTEMD
+#include "seat.h"
+#include "server.h"
+#include "xx-hotkey-v1-protocol.h"
+#include <linux/input-event-codes.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
-#include <systemd/sd-bus.h>
-#include <time.h>
-#include <wayland-server-core.h>
+#include <wayland-server.h>
 #include <wlr/types/wlr_keyboard.h>
+#include <wlr/types/wlr_seat.h>
+#include <wlr/util/log.h>
+#include <xkbcommon/xkbcommon-keysyms.h>
 #include <xkbcommon/xkbcommon.h>
 
-static gs_state_t gs;
+#define GS_HOTKEY_VERSION 1
+#define GS_MAX_SYMS 8
 
-static int gs_method_create_session(sd_bus_message *m, void *userdata, sd_bus_error *ret_error);
-static int gs_method_bind_shortcuts(sd_bus_message *m, void *userdata, sd_bus_error *ret_error);
-static int gs_method_list_shortcuts(sd_bus_message *m, void *userdata, sd_bus_error *ret_error);
-static int gs_method_configure_shortcuts(sd_bus_message *m, void *userdata,
-	sd_bus_error *ret_error);
+typedef enum {
+	TRIG_NONE = 0,
+	TRIG_KEY,
+	TRIG_BUTTON,
+} trigger_kind_t;
 
-static int gs_session_method_close(sd_bus_message *m, void *userdata, sd_bus_error *ret_error);
-static int gs_request_method_close(sd_bus_message *m, void *userdata, sd_bus_error *ret_error);
+typedef struct gs_hotkey {
+	struct wl_resource *resource;
+	struct wl_list link;
+	char *app_id;
 
-static int gs_property_get_version(sd_bus *bus, const char *path, const char *interface,
-	const char *property, sd_bus_message *reply, void *userdata, sd_bus_error *ret_error);
+	trigger_kind_t kind;
+	uint32_t modifiers;
+	union {
+		xkb_keysym_t keysym;
+		uint32_t button;
+	} trigger;
+	char *desc;
+	struct wl_resource *seat;
 
-static const sd_bus_vtable gs_main_vtable[] = {
-	SD_BUS_VTABLE_START(0),
-	SD_BUS_METHOD("CreateSession", "oosa{sv}", "ua{sv}", gs_method_create_session,
-		SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_METHOD("BindShortcuts", "ooa(sa{sv})sa{sv}", "ua{sv}", gs_method_bind_shortcuts,
-		SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_METHOD("ListShortcuts", "oo", "ua{sv}", gs_method_list_shortcuts,
-		SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_METHOD("ConfigureShortcuts", "osa{sv}", "", gs_method_configure_shortcuts,
-		SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_WRITABLE_PROPERTY("version", "u", gs_property_get_version, NULL, 0, 0),
-	SD_BUS_VTABLE_END,
-};
+	bool bound;
+	trigger_kind_t active_kind;
+	uint32_t active_modifiers;
+	union {
+		xkb_keysym_t keysym;
+		uint32_t button;
+	} active_trigger;
+	char *active_desc;
+	struct wl_resource *active_seat;
 
-static const sd_bus_vtable gs_session_vtable[] = {
-	SD_BUS_VTABLE_START(0),
-	SD_BUS_METHOD("Close", "", "", gs_session_method_close, SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_VTABLE_END,
-};
+	struct wl_listener seat_destroy;
+	bool seat_listener_installed;
 
-static const sd_bus_vtable gs_request_vtable[] = {
-	SD_BUS_VTABLE_START(0),
-	SD_BUS_METHOD("Close", "", "", gs_request_method_close, SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_VTABLE_END,
-};
+	uint32_t trigger_keycode;
+	bool down, armed, contaminated;
+} gs_hotkey_t;
 
-static uint32_t parse_single_modifier(const char *name, size_t len) {
-	char buf[32];
-	if (len >= sizeof(buf))
-		return 0;
-	memcpy(buf, name, len);
-	buf[len] = '\0';
+typedef struct gs_client {
+	struct wl_resource *manager_resource;
+	char *app_id;
+	bool app_id_set;
+	struct wl_list link; // gs.clients
+} gs_client_t;
 
-	if (strcasecmp(buf, "Control") == 0 || strcasecmp(buf, "Ctrl") == 0)
-		return WLR_MODIFIER_CTRL;
-	if (strcasecmp(buf, "Shift") == 0)
-		return WLR_MODIFIER_SHIFT;
-	if (strcasecmp(buf, "Super") == 0 || strcasecmp(buf, "Win") == 0 || strcasecmp(buf, "Mod4") == 0)
-		return WLR_MODIFIER_LOGO;
-	if (strcasecmp(buf, "Alt") == 0 || strcasecmp(buf, "Mod1") == 0)
-		return WLR_MODIFIER_ALT;
-	if (strcasecmp(buf, "Hyper") == 0 || strcasecmp(buf, "Mod3") == 0)
-		return WLR_MODIFIER_MOD3;
-	return 0;
+static struct {
+	struct wl_global *global;
+	struct wl_list clients;
+	struct wl_list hotkeys;
+	struct wl_listener display_destroy;
+	bool display_listener_installed;
+	bool initialized;
+	uint32_t serial;
+} gs;
+
+static const uint32_t gs_semantic_mods = WLR_MODIFIER_SHIFT | WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT |
+	WLR_MODIFIER_LOGO;
+static const uint32_t gs_xx_mod_mask = XX_HOTKEY_MANAGER_V1_MODIFIERS_SHIFT |
+	XX_HOTKEY_MANAGER_V1_MODIFIERS_CTRL | XX_HOTKEY_MANAGER_V1_MODIFIERS_ALT |
+	XX_HOTKEY_MANAGER_V1_MODIFIERS_SUPER;
+
+static uint32_t gs_next_serial(void) {
+	if (gs.serial == UINT32_MAX)
+		gs.serial = 0;
+	return ++gs.serial;
 }
 
-static bool parse_trigger_string(const char *trigger, uint32_t *out_mods, xkb_keysym_t *out_keysym,
-		char *out_desc, size_t desc_size) {
-	*out_mods = 0;
-	*out_keysym = XKB_KEY_NoSymbol;
-	out_desc[0] = '\0';
+static uint32_t gs_xx_to_wlr_mods(uint32_t xx) {
+	uint32_t m = 0;
+	if (xx & XX_HOTKEY_MANAGER_V1_MODIFIERS_SHIFT)
+		m |= WLR_MODIFIER_SHIFT;
+	if (xx & XX_HOTKEY_MANAGER_V1_MODIFIERS_CTRL)
+		m |= WLR_MODIFIER_CTRL;
+	if (xx & XX_HOTKEY_MANAGER_V1_MODIFIERS_ALT)
+		m |= WLR_MODIFIER_ALT;
+	if (xx & XX_HOTKEY_MANAGER_V1_MODIFIERS_SUPER)
+		m |= WLR_MODIFIER_LOGO;
+	return m;
+}
 
-	if (!trigger || !*trigger)
-		return false;
+static bool gs_keysym_is_modifier(xkb_keysym_t s) {
+	switch (s) {
+	case XKB_KEY_Shift_L:
+	case XKB_KEY_Shift_R:
+	case XKB_KEY_Control_L:
+	case XKB_KEY_Control_R:
+	case XKB_KEY_Alt_L:
+	case XKB_KEY_Alt_R:
+	case XKB_KEY_Super_L:
+	case XKB_KEY_Super_R:
+	case XKB_KEY_Hyper_L:
+	case XKB_KEY_Hyper_R:
+	case XKB_KEY_Meta_L:
+	case XKB_KEY_Meta_R:
+	case XKB_KEY_ISO_Level3_Shift:
+	case XKB_KEY_ISO_Level3_Latch:
+	case XKB_KEY_ISO_Level3_Lock:
+	case XKB_KEY_ISO_Next_Group:
+	case XKB_KEY_ISO_Prev_Group:
+	case XKB_KEY_Mode_switch:
+	case XKB_KEY_Caps_Lock:
+	case XKB_KEY_Num_Lock:
+	case XKB_KEY_Scroll_Lock:
+		return true;
+	}
+	return false;
+}
 
-	const char *p = trigger;
-	uint32_t mods = 0;
+static bool gs_keysym_name_prefix(xkb_keysym_t s, const char *prefix, size_t plen) {
+	char name[64];
+	int n = xkb_keysym_get_name(s, name, sizeof(name));
+	return n >= 0 && (size_t)n >= plen && strncmp(name, prefix, plen) == 0;
+}
 
-	while (*p == '<') {
-		const char *end = strchr(p, '>');
-		if (!end)
+static bool gs_keysym_is_keypad(xkb_keysym_t s) {
+	return gs_keysym_name_prefix(s, "KP", 2);
+}
+
+static bool gs_keysym_is_dead(xkb_keysym_t s) {
+	return gs_keysym_name_prefix(s, "dead", 4);
+}
+
+static bool gs_keysym_has_char(xkb_keysym_t s) {
+	char buf[8];
+	return xkb_keysym_to_utf8(s, buf, sizeof(buf)) > 0;
+}
+
+static int gs_resolve_base_keysyms(struct xkb_keymap *keymap, xkb_keycode_t keycode,
+		xkb_keysym_t *out, int maxout) {
+	int nlayouts = xkb_keymap_num_layouts(keymap);
+	if (nlayouts < 1)
+		nlayouts = 1;
+	int n = 0;
+	for (int l = 0; l < nlayouts && n < maxout; l++) {
+		const xkb_keysym_t *syms = NULL;
+		int cnt = xkb_keymap_key_get_syms_by_level(keymap, keycode, l, 0, &syms);
+		for (int i = 0; i < cnt && n < maxout; i++) {
+			bool dup = false;
+			for (int j = 0; j < n; j++)
+				if (out[j] == syms[i]) {
+					dup = true;
+				break;
+			}
+			if (!dup)
+				out[n++] = syms[i];
+		}
+	}
+	return n;
+}
+
+static bool gs_hotkey_is_tap(const gs_hotkey_t *h) {
+	return h->active_kind == TRIG_KEY && gs_keysym_is_modifier(h->active_trigger.keysym);
+}
+
+static bool gs_trigger_permitted(const gs_hotkey_t *h) {
+	uint32_t m = h->modifiers;
+	// ctrl / alt / super always permit the trigger
+	if (m & (WLR_MODIFIER_CTRL | WLR_MODIFIER_ALT | WLR_MODIFIER_LOGO))
+		return true;
+
+	switch (h->kind) {
+	case TRIG_KEY: {
+		xkb_keysym_t ks = h->trigger.keysym;
+		if (gs_keysym_is_modifier(ks))
+			return true; // modifier keysyms (taps) are permitted
+		if (gs_keysym_is_keypad(ks))
+			return true;
+		if (gs_keysym_is_dead(ks))
 			return false;
-		size_t len = (size_t)(end - p - 1);
-		uint32_t m = parse_single_modifier(p + 1, len);
-		if (m)
-			mods |= m;
-		p = end + 1;
+		if (gs_keysym_has_char(ks))
+			return false;
+		return true; // function / navigation / media keys
 	}
+	case TRIG_BUTTON:
+		return h->trigger.button > BTN_MIDDLE;
+	default:
+		return false;
+	}
+}
 
-	if (!*p)
+static bool gs_seat_matches(struct wl_resource *seat_resource, struct wlr_seat *event_seat) {
+	if (!seat_resource)
+		return true;
+	if (!event_seat)
 		return false;
 
-	xkb_keysym_t keysym = xkb_keysym_from_name(p, XKB_KEYSYM_CASE_INSENSITIVE);
-	if (keysym == XKB_KEY_NoSymbol)
-		return false;
-
-	*out_mods = mods;
-	*out_keysym = keysym;
-
-	char buf[256];
-	int pos = 0;
-	if (mods & WLR_MODIFIER_CTRL)
-		pos += snprintf(buf + pos, sizeof(buf) - pos, "Ctrl+");
-	if (mods & WLR_MODIFIER_ALT)
-		pos += snprintf(buf + pos, sizeof(buf) - pos, "Alt+");
-	if (mods & WLR_MODIFIER_SHIFT)
-		pos += snprintf(buf + pos, sizeof(buf) - pos, "Shift+");
-	if (mods & WLR_MODIFIER_LOGO)
-		pos += snprintf(buf + pos, sizeof(buf) - pos, "Super+");
-
-	xkb_keysym_get_name(keysym, buf + pos, sizeof(buf) - pos);
-	if (buf[pos] >= 'a' && buf[pos] <= 'z')
-		buf[pos] -= 'a' - 'A';
-
-	snprintf(out_desc, desc_size, "%s", buf);
-	return true;
+	seat_t *s;
+	wl_list_for_each(s, &server.seats, link) {
+		struct wlr_seat *ws = s->wlr_seat;
+		if (!ws)
+			continue;
+		struct wlr_seat_client *sc;
+		wl_list_for_each(sc, &ws->clients, link) {
+			struct wl_resource *res;
+			wl_list_for_each(res, &sc->resources, link) {
+				if (res == seat_resource)
+					return ws == event_seat;
+			}
+		}
+	}
+	return false;
 }
 
-static void shortcut_destroy(gs_shortcut_t *sc) {
-	wl_list_remove(&sc->link);
-	free(sc->id);
-	free(sc->description);
-	free(sc->trigger_description);
-	free(sc);
-}
-
-static void session_destroy(gs_session_t *sess) {
-	if (sess->destroyed)
-		return;
-	sess->destroyed = true;
-
-	gs_shortcut_t *sc, *sc_tmp;
-	wl_list_for_each_safe(sc, sc_tmp, &sess->shortcuts, link) {
-		shortcut_destroy(sc);
-	}
-
-	wl_list_remove(&sess->link);
-
-	if (sess->session_slot) {
-		sd_bus_slot_unref(sess->session_slot);
-		sess->session_slot = NULL;
-	}
-	if (sess->request_slot) {
-		sd_bus_slot_unref(sess->request_slot);
-		sess->request_slot = NULL;
-	}
-
-	free(sess->app_id);
-	free(sess->session_path);
-	free(sess->request_path);
-	free(sess);
-}
-
-static gs_session_t *session_find_by_path(const char *path) {
-	gs_session_t *sess;
-	wl_list_for_each(sess, &gs.sessions, link) {
-		if (!sess->destroyed && strcmp(sess->session_path, path) == 0)
-			return sess;
+static gs_client_t *gs_client_for_wl_client(struct wl_client *client) {
+	if (!client)
+		return NULL;
+	gs_client_t *c;
+	wl_list_for_each(c, &gs.clients, link) {
+		if (c->manager_resource && wl_resource_get_client(c->manager_resource) == client)
+			return c;
 	}
 	return NULL;
 }
 
-static int append_shortcut_to_array(sd_bus_message *reply, gs_shortcut_t *sc) {
-	int r = sd_bus_message_open_container(reply, 'r', "sa{sv}");
-	if (r < 0)
-		return r;
+static void gs_hotkey_refresh_seat_listener(gs_hotkey_t *h);
+static void gs_hotkey_revoke(gs_hotkey_t *h, const char *msg);
 
-	r = sd_bus_message_append(reply, "s", sc->id);
-	if (r < 0)
-		goto fail;
-
-	r = sd_bus_message_open_container(reply, 'a', "{sv}");
-	if (r < 0)
-		goto fail;
-
-	// description
-	r = sd_bus_message_open_container(reply, 'e', "sv");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_append(reply, "s", "description");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_open_container(reply, 'v', "s");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_append(reply, "s", sc->description ? sc->description : "");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		goto fail;
-
-	// trigger_description
-	r = sd_bus_message_open_container(reply, 'e', "sv");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_append(reply, "s", "trigger_description");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_open_container(reply, 'v', "s");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_append(reply, "s", sc->trigger_description ? sc->trigger_description : "");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		goto fail;
-
-	r = sd_bus_message_close_container(reply); // a{sv}
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_close_container(reply); // (sa{sv})
-	if (r < 0)
-		goto fail;
-	return r;
-
-fail:
-	sd_bus_message_close_container(reply);
-	return r;
-}
-
-static int open_shortcuts_array(sd_bus_message *reply) {
-	int r;
-	r = sd_bus_message_open_container(reply, 'a', "{sv}");
-	if (r < 0)
-		return r;
-	r = sd_bus_message_open_container(reply, 'e', "sv");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_append(reply, "s", "shortcuts");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_open_container(reply, 'v', "a(sa{sv})");
-	if (r < 0)
-		goto fail;
-	r = sd_bus_message_open_container(reply, 'a', "(sa{sv})");
-	if (r < 0)
-		goto fail;
-	return 0;
-fail:
-	sd_bus_message_close_container(reply);
-	return r;
-}
-
-static int close_shortcuts_array(sd_bus_message *reply) {
-	int r;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		return r;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		return r;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		return r;
-	r = sd_bus_message_close_container(reply);
-	if (r < 0)
-		return r;
-	return 0;
-}
-
-static void emit_activated(gs_session_t *sess, gs_shortcut_t *sc, uint64_t timestamp) {
-	if (!gs.bus)
-		return;
-	sd_bus_message *sig = NULL;
-	int r = sd_bus_message_new_signal(gs.bus, &sig, GS_OBJECT_PATH, GS_IMPL_IFACE, "Activated");
-	if (r < 0 || !sig)
-		return;
-	sd_bus_message_append(sig, "ost", sess->session_path, sc->id, timestamp);
-	sd_bus_message_open_container(sig, 'a', "{sv}");
-	sd_bus_message_close_container(sig);
-	sd_bus_send(gs.bus, sig, NULL);
-	sd_bus_message_unref(sig);
-}
-
-static void emit_deactivated(gs_session_t *sess, gs_shortcut_t *sc, uint64_t timestamp) {
-	if (!gs.bus)
-		return;
-	sd_bus_message *sig = NULL;
-	int r = sd_bus_message_new_signal(gs.bus, &sig, GS_OBJECT_PATH, GS_IMPL_IFACE, "Deactivated");
-	if (r < 0 || !sig)
-		return;
-	sd_bus_message_append(sig, "ost", sess->session_path, sc->id, timestamp);
-	sd_bus_message_open_container(sig, 'a', "{sv}");
-	sd_bus_message_close_container(sig);
-	sd_bus_send(gs.bus, sig, NULL);
-	sd_bus_message_unref(sig);
-}
-
-static void emit_shortcuts_changed(gs_session_t *sess) {
-	if (!gs.bus)
-		return;
-	sd_bus_message *sig = NULL;
-	int r = sd_bus_message_new_signal(gs.bus, &sig, GS_OBJECT_PATH, GS_IMPL_IFACE, "ShortcutsChanged");
-	if (r < 0 || !sig)
-		return;
-	sd_bus_message_append(sig, "o", sess->session_path);
-	sd_bus_message_open_container(sig, 'a', "(sa{sv})");
-	gs_shortcut_t *sc;
-	wl_list_for_each(sc, &sess->shortcuts, link) {
-		append_shortcut_to_array(sig, sc);
-	}
-	sd_bus_message_close_container(sig);
-	sd_bus_send(gs.bus, sig, NULL);
-	sd_bus_message_unref(sig);
-}
-
-static int gs_method_create_session(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
-	(void)userdata;
-	(void)ret_error;
-
-	const char *handle_path, *session_path, *app_id;
-	int r = sd_bus_message_read(m, "oos", &handle_path, &session_path, &app_id);
-	if (r < 0)
-		return r;
-
-	r = sd_bus_message_enter_container(m, 'a', "{sv}");
-	if (r >= 0) {
-		while (sd_bus_message_enter_container(m, 'e', "sv") > 0) {
-			sd_bus_message_skip(m, "v");
-			sd_bus_message_exit_container(m);
-		}
-		sd_bus_message_exit_container(m);
-	}
-
-	wlr_log(WLR_INFO, "CreateSession from %s (session=%s)", app_id, session_path);
-
-	gs_session_t *sess = calloc(1, sizeof(*sess));
-	if (!sess)
-		return -ENOMEM;
-
-	sess->app_id = strdup(app_id);
-	sess->session_path = strdup(session_path);
-	sess->request_path = strdup(handle_path);
-	wl_list_init(&sess->shortcuts);
-	wl_list_insert(&gs.sessions, &sess->link);
-
-	r = sd_bus_add_object_vtable(gs.bus, &sess->session_slot, sess->session_path, GS_SESSION_IFACE,
-		gs_session_vtable, sess);
-	if (r < 0) {
-		wlr_log(WLR_ERROR, "failed to register session: %s", strerror(-r));
-		session_destroy(sess);
-		return r;
-	}
-
-	r = sd_bus_add_object_vtable(gs.bus, &sess->request_slot, sess->request_path, GS_REQUEST_IFACE,
-		gs_request_vtable, sess);
-	if (r < 0) {
-		wlr_log(WLR_ERROR, "failed to register request: %s", strerror(-r));
-		session_destroy(sess);
-		return r;
-	}
-
-	sd_bus_emit_object_added(gs.bus, sess->session_path);
-	sd_bus_emit_object_added(gs.bus, sess->request_path);
-
-	return sd_bus_reply_method_return(m, "ua{sv}", GS_RESPONSE_SUCCESS, 0);
-}
-
-static int gs_method_bind_shortcuts(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
-	(void)userdata;
-	(void)ret_error;
-
-	const char *handle_path, *session_path, *parent_window;
-	int r = sd_bus_message_read(m, "oos", &handle_path, &session_path, &parent_window);
-	if (r < 0)
-		return r;
-
-	gs_session_t *sess = session_find_by_path(session_path);
-	if (!sess) {
-		sd_bus_message_skip(m, "a(sa{sv})sa{sv}");
-		return sd_bus_reply_method_errorf(m, "org.freedesktop.DBus.Error.Failed", "Unknown session");
-	}
-
-	gs_shortcut_t *sc_tmp2, *sc_tmp3;
-	wl_list_for_each_safe(sc_tmp2, sc_tmp3, &sess->shortcuts, link)
-		shortcut_destroy(sc_tmp2);
-
-	r = sd_bus_message_enter_container(m, 'a', "(sa{sv})");
-	if (r < 0)
-		return r;
-
-	while ((r = sd_bus_message_enter_container(m, 'r', "sa{sv}")) > 0) {
-		const char *id;
-		r = sd_bus_message_read(m, "s", &id);
-		if (r < 0) {
-			sd_bus_message_exit_container(m);
-			break;
-		}
-
-		char *description = NULL;
-		char *preferred_trigger = NULL;
-
-		r = sd_bus_message_enter_container(m, 'a', "{sv}");
-		if (r >= 0) {
-			while (sd_bus_message_enter_container(m, 'e', "sv") > 0) {
-				const char *key;
-				r = sd_bus_message_read(m, "s", &key);
-				if (r < 0)
-					break;
-				if (strcmp(key, "description") == 0) {
-					const char *val;
-					if (sd_bus_message_read(m, "v", "s", &val) >= 0)
-						description = strdup(val);
-					else
-						sd_bus_message_skip(m, "v");
-				} else if (strcmp(key, "preferred_trigger") == 0) {
-					const char *val;
-					if (sd_bus_message_read(m, "v", "s", &val) >= 0)
-						preferred_trigger = strdup(val);
-					else
-						sd_bus_message_skip(m, "v");
-				} else {
-					sd_bus_message_skip(m, "v");
-				}
-				sd_bus_message_exit_container(m);
-			}
-			sd_bus_message_exit_container(m);
-		}
-
-		sd_bus_message_exit_container(m);
-
-		gs_shortcut_t *sc = calloc(1, sizeof(*sc));
-		if (sc) {
-			sc->id = strdup(id);
-			sc->description = description;
-			sc->session = sess;
-			char desc_buf[256];
-			sc->has_trigger = parse_trigger_string(preferred_trigger, &sc->modifiers, &sc->keysym, desc_buf,
-				sizeof(desc_buf));
-			if (sc->has_trigger)
-				sc->trigger_description = strdup(desc_buf);
-			wl_list_insert(&sess->shortcuts, &sc->link);
-		} else {
-			free(description);
-		}
-		free(preferred_trigger);
-	}
-
-	sd_bus_message_exit_container(m);
-
-	sd_bus_message_enter_container(m, 'a', "{sv}");
-	while (sd_bus_message_enter_container(m, 'e', "sv") > 0) {
-		sd_bus_message_skip(m, "v");
-		sd_bus_message_exit_container(m);
-	}
-	sd_bus_message_exit_container(m);
-
-	sd_bus_message *reply = NULL;
-	r = sd_bus_message_new_method_return(m, &reply);
-	if (r < 0 || !reply)
-		return -ENOMEM;
-
-	r = sd_bus_message_append(reply, "u", GS_RESPONSE_SUCCESS);
-	if (r < 0)
-		goto reply_fail;
-	r = open_shortcuts_array(reply);
-	if (r < 0)
-		goto reply_fail;
-	gs_shortcut_t *sc;
-	wl_list_for_each(sc, &sess->shortcuts, link) {
-		append_shortcut_to_array(reply, sc);
-	}
-	r = close_shortcuts_array(reply);
-	if (r < 0)
-		goto reply_fail;
-	sd_bus_send(gs.bus, reply, NULL);
-	sd_bus_message_unref(reply);
-	emit_shortcuts_changed(sess);
-	return 1;
-
-reply_fail:
-	sd_bus_message_unref(reply);
-	return r;
-}
-
-static int gs_method_list_shortcuts(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
-	(void)userdata;
-	(void)ret_error;
-
-	const char *session_path, *handle_path;
-	int r = sd_bus_message_read(m, "oo", &session_path, &handle_path);
-	if (r < 0)
-		return r;
-
-	gs_session_t *sess = session_find_by_path(session_path);
-	if (!sess)
-		return sd_bus_reply_method_errorf(m, "org.freedesktop.DBus.Error.Failed", "Unknown session");
-
-	sd_bus_message *reply = NULL;
-	r = sd_bus_message_new_method_return(m, &reply);
-	if (r < 0 || !reply)
-		return -ENOMEM;
-
-	r = sd_bus_message_append(reply, "u", GS_RESPONSE_SUCCESS);
-	if (r < 0)
-		goto reply_fail;
-	r = open_shortcuts_array(reply);
-	if (r < 0)
-		goto reply_fail;
-	gs_shortcut_t *sc;
-	wl_list_for_each(sc, &sess->shortcuts, link) {
-		append_shortcut_to_array(reply, sc);
-	}
-	r = close_shortcuts_array(reply);
-	if (r < 0)
-		goto reply_fail;
-	sd_bus_send(gs.bus, reply, NULL);
-	sd_bus_message_unref(reply);
-	return 1;
-
-reply_fail:
-	sd_bus_message_unref(reply);
-	return r;
-}
-
-static int gs_method_configure_shortcuts(sd_bus_message *m, void *userdata,
-		sd_bus_error *ret_error) {
-	(void)userdata;
-	(void)ret_error;
-
-	const char *session_path, *parent_window;
-	int r = sd_bus_message_read(m, "os", &session_path, &parent_window);
-	if (r < 0)
-		return r;
-
-	r = sd_bus_message_enter_container(m, 'a', "{sv}");
-	if (r >= 0) {
-		while (sd_bus_message_enter_container(m, 'e', "sv") > 0) {
-			sd_bus_message_skip(m, "v");
-			sd_bus_message_exit_container(m);
-		}
-		sd_bus_message_exit_container(m);
-	}
-
-	return 1;
-}
-
-static int gs_session_method_close(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
-	(void)ret_error;
-	gs_session_t *sess = userdata;
-	wlr_log(WLR_INFO, "session closed by %s", sess->app_id);
-	session_destroy(sess);
-	return sd_bus_reply_method_return(m, "");
-}
-
-static int gs_request_method_close(sd_bus_message *m, void *userdata, sd_bus_error *ret_error) {
-	(void)ret_error;
-	(void)userdata;
-	return sd_bus_reply_method_return(m, "");
-}
-
-static int gs_property_get_version(sd_bus *bus, const char *path, const char *interface,
-		const char *property, sd_bus_message *reply, void *userdata, sd_bus_error *ret_error) {
-	(void)bus;
-	(void)path;
-	(void)interface;
-	(void)property;
-	(void)userdata;
-	(void)ret_error;
-	return sd_bus_message_append(reply, "u", GS_VERSION);
-}
-
-static int bus_dispatch(int fd, uint32_t mask, void *data) {
-	(void)fd;
-	(void)mask;
+static void gs_seat_destroy_notify(struct wl_listener *listener, void *data) {
 	(void)data;
-	if (!gs.bus)
-		return 0;
-	int r;
-	do {
-		if ((r = sd_bus_process(gs.bus, NULL)) < 0) {
-			wlr_log(WLR_ERROR, "sd_bus_process failed: %s", strerror(-r));
-			break;
-		}
-	} while (r != 0);
-	return 0;
+	gs_hotkey_t *h = wl_container_of(listener, h, seat_destroy);
+	h->seat_listener_installed = false;
+	gs_hotkey_revoke(h, "seat was removed");
 }
 
-void global_shortcuts_init(void) {
-	ONCE();
-	memset(&gs, 0, sizeof(gs));
-	wl_list_init(&gs.sessions);
-
-	int r = sd_bus_open_user(&gs.bus);
-	if (r < 0) {
-		wlr_log(WLR_ERROR, "failed to connect to session bus: %s", strerror(-r));
-		return;
+static void gs_hotkey_refresh_seat_listener(gs_hotkey_t *h) {
+	if (h->seat_listener_installed) {
+		wl_list_remove(&h->seat_destroy.link);
+		h->seat_listener_installed = false;
 	}
-
-	r = sd_bus_request_name(gs.bus, GS_BUS_NAME, 0);
-	if (r < 0) {
-		wlr_log(WLR_ERROR, "failed to request bus name '%s': %s", GS_BUS_NAME, strerror(-r));
-		sd_bus_unref(gs.bus);
-		gs.bus = NULL;
-		return;
+	if (h->active_seat) {
+		h->seat_destroy.notify = gs_seat_destroy_notify;
+		wl_signal_add(&h->active_seat->destroy_signal, &h->seat_destroy);
+		h->seat_listener_installed = true;
 	}
-
-	r = sd_bus_add_object_vtable(gs.bus, &gs.main_slot, GS_OBJECT_PATH, GS_IMPL_IFACE, gs_main_vtable,
-		NULL);
-	if (r < 0) {
-		wlr_log(WLR_ERROR, "failed to register main vtable: %s", strerror(-r));
-		sd_bus_unref(gs.bus);
-		gs.bus = NULL;
-		return;
-	}
-
-	int bus_fd = sd_bus_get_fd(gs.bus);
-	if (bus_fd < 0) {
-		wlr_log(WLR_ERROR, "failed to get bus fd: %s", strerror(-bus_fd));
-		sd_bus_unref(gs.bus);
-		gs.bus = NULL;
-		return;
-	}
-
-	struct wl_event_loop *loop = wl_display_get_event_loop(server.wl_display);
-	gs.bus_event_source = wl_event_loop_add_fd(loop, bus_fd, WL_EVENT_READABLE, bus_dispatch, NULL);
-	if (!gs.bus_event_source) {
-		wlr_log(WLR_ERROR, "failed to add bus fd to event loop");
-		sd_bus_unref(gs.bus);
-		gs.bus = NULL;
-		return;
-	}
-
-	gs.initialized = true;
-	wlr_log(WLR_INFO, "initialized on %s", GS_BUS_NAME);
 }
 
-void global_shortcuts_fini(void) {
-	ONCE();
+static void gs_hotkey_revoke(gs_hotkey_t *h, const char *msg) {
+	if (!h->bound)
+		return;
+	h->bound = false;
+	free(h->active_desc);
+	h->active_desc = NULL;
+	h->active_seat = NULL;
+	h->active_kind = TRIG_NONE;
+	h->active_modifiers = 0;
+	h->active_trigger.keysym = 0;
+	h->trigger_keycode = 0;
+	h->down = false;
+	h->armed = false;
+	h->contaminated = false;
+	gs_hotkey_refresh_seat_listener(h);
+	if (h->resource && wl_resource_get_user_data(h->resource) == (void *)h)
+		xx_hotkey_v1_send_revoked(h->resource, msg);
+}
+
+static void gs_hotkey_apply(gs_hotkey_t *h) {
+	gs_client_t *c = gs_client_for_wl_client(h->resource ? wl_resource_get_client(h->resource) : NULL);
+
+	free(h->app_id);
+	h->app_id = (c && c->app_id) ? strdup(c->app_id) : strdup("");
+
+	free(h->active_desc);
+	h->active_desc = h->desc ? strdup(h->desc) : strdup("");
+
+	h->active_seat = h->seat;
+	h->active_kind = h->kind;
+	h->active_modifiers = h->modifiers;
+	switch (h->kind) {
+	case TRIG_KEY:
+		h->active_trigger.keysym = h->trigger.keysym;
+		break;
+	case TRIG_BUTTON:
+		h->active_trigger.button = h->trigger.button;
+		break;
+	default:
+		h->active_kind = TRIG_NONE;
+		break;
+	}
+	h->bound = true;
+	h->trigger_keycode = 0;
+	h->down = false;
+	h->armed = false;
+	h->contaminated = false;
+	gs_hotkey_refresh_seat_listener(h);
+}
+
+static void gs_hotkey_free(gs_hotkey_t *h) {
+	if (h->seat_listener_installed) {
+		wl_list_remove(&h->seat_destroy.link);
+		h->seat_listener_installed = false;
+	}
+	wl_list_remove(&h->link);
+	free(h->desc);
+	free(h->active_desc);
+	free(h->app_id);
+	free(h);
+}
+
+static void gs_hotkey_resource_destroy(struct wl_resource *resource) {
+	gs_hotkey_t *h = wl_resource_get_user_data(resource);
+	if (!h)
+		return;
+	wl_resource_set_user_data(resource, NULL);
+	gs_hotkey_free(h);
+}
+
+static void gs_hotkey_handle_destroy(struct wl_client *client, struct wl_resource *resource) {
+	(void)client;
+	wl_resource_destroy(resource);
+}
+
+static void gs_hotkey_handle_set_description(struct wl_client *client, struct wl_resource *resource,
+		const char *description) {
+	(void)client;
+	gs_hotkey_t *h = wl_resource_get_user_data(resource);
+	if (!h)
+		return;
+	free(h->desc);
+	h->desc = description ? strdup(description) : strdup("");
+}
+
+static void gs_hotkey_handle_set_seat(struct wl_client *client, struct wl_resource *resource,
+		struct wl_resource *seat) {
+	(void)client;
+	gs_hotkey_t *h = wl_resource_get_user_data(resource);
+	if (!h)
+		return;
+	h->seat = seat;
+}
+
+static void gs_hotkey_handle_set_key_trigger(struct wl_client *client, struct wl_resource *resource,
+		uint32_t keysym, uint32_t modifiers) {
+	(void)client;
+	gs_hotkey_t *h = wl_resource_get_user_data(resource);
+	if (!h)
+		return;
+	if (modifiers & ~gs_xx_mod_mask) {
+		wl_resource_post_error(resource, XX_HOTKEY_V1_ERROR_INVALID_TRIGGER,
+			"modifier mask has bits outside the defined set");
+		return;
+	}
+	h->kind = TRIG_KEY;
+	h->trigger.keysym = keysym;
+	h->modifiers = gs_xx_to_wlr_mods(modifiers);
+}
+
+static void gs_hotkey_handle_set_button_trigger(struct wl_client *client,
+		struct wl_resource *resource, uint32_t button, uint32_t modifiers) {
+	(void)client;
+	gs_hotkey_t *h = wl_resource_get_user_data(resource);
+	if (!h)
+		return;
+	if (modifiers & ~gs_xx_mod_mask) {
+		wl_resource_post_error(resource, XX_HOTKEY_V1_ERROR_INVALID_TRIGGER,
+			"modifier mask has bits outside the defined set");
+		return;
+	}
+	h->kind = TRIG_BUTTON;
+	h->trigger.button = button;
+	h->modifiers = gs_xx_to_wlr_mods(modifiers);
+}
+
+static bool gs_hotkey_is_taken(const gs_hotkey_t *self) {
+	const gs_hotkey_t *h;
+	wl_list_for_each(h, &gs.hotkeys, link) {
+		if (h == self)
+			continue;
+		if (!h->bound)
+			continue;
+		if (h->active_kind != self->kind)
+			continue;
+		if ((h->active_modifiers & gs_semantic_mods) != (self->modifiers & gs_semantic_mods))
+			continue;
+		if (h->active_seat != self->seat)
+			continue;
+		if (h->active_kind == TRIG_KEY && h->active_trigger.keysym != self->trigger.keysym)
+			continue;
+		if (h->active_kind == TRIG_BUTTON && h->active_trigger.button != self->trigger.button)
+			continue;
+		return true;
+	}
+	return false;
+}
+
+static void gs_hotkey_handle_commit(struct wl_client *client, struct wl_resource *resource) {
+	(void)client;
+	gs_hotkey_t *h = wl_resource_get_user_data(resource);
+	if (!h)
+		return;
+
+	if (h->kind == TRIG_NONE) {
+		wl_resource_post_error(resource, XX_HOTKEY_V1_ERROR_NO_TRIGGER,
+			"commit was sent before a trigger was described");
+		return;
+	}
+
+	gs_client_t *c = gs_client_for_wl_client(wl_resource_get_client(resource));
+
+	if (!gs_trigger_permitted(h)) {
+		wlr_log(WLR_DEBUG, "xx-hotkey-v1: denying %s shortcut for %s (not permitted)",
+			h->kind == TRIG_KEY ? "key" : "button", c && c->app_id ? c->app_id : "(unidentified)");
+		xx_hotkey_v1_send_denied(h->resource, XX_HOTKEY_V1_DENY_REASON_NOT_PERMITTED,
+			"trigger is not permitted (bind with ctrl/alt/super, or use a function/"
+			"keypad/modifier key)");
+		return;
+	}
+
+	if (gs_hotkey_is_taken(h)) {
+		xx_hotkey_v1_send_denied(h->resource, XX_HOTKEY_V1_DENY_REASON_ALREADY_BOUND,
+			"the requested shortcut is already taken");
+		return;
+	}
+
+	gs_hotkey_apply(h);
+	xx_hotkey_v1_send_bound(h->resource);
+}
+
+static const struct xx_hotkey_v1_interface hotkey_impl = {
+	.destroy = gs_hotkey_handle_destroy,
+	.set_description = gs_hotkey_handle_set_description,
+	.set_seat = gs_hotkey_handle_set_seat,
+	.set_key_trigger = gs_hotkey_handle_set_key_trigger,
+	.set_button_trigger = gs_hotkey_handle_set_button_trigger,
+	.commit = gs_hotkey_handle_commit,
+};
+
+static void gs_manager_handle_destroy(struct wl_client *client_unused,
+		struct wl_resource *resource) {
+	(void)client_unused;
+	wl_resource_destroy(resource);
+}
+
+static void gs_manager_handle_set_app_id(struct wl_client *client_unused,
+		struct wl_resource *resource, const char *app_id) {
+	(void)client_unused;
+	gs_client_t *c = wl_resource_get_user_data(resource);
+	if (!c)
+		return;
+	if (!app_id || app_id[0] == '\0') {
+		wl_resource_post_error(resource, XX_HOTKEY_MANAGER_V1_ERROR_INVALID_APP_ID,
+			"app_id must not be empty");
+		return;
+	}
+	if (c->app_id_set) {
+		wl_resource_post_error(resource, XX_HOTKEY_MANAGER_V1_ERROR_INVALID_APP_ID,
+			"app_id may only be set once");
+		return;
+	}
+	c->app_id = strdup(app_id);
+	c->app_id_set = true;
+}
+
+static void gs_manager_handle_create_hotkey(struct wl_client *client_unused,
+		struct wl_resource *resource, uint32_t id) {
+	(void)client_unused;
+	gs_client_t *c = wl_resource_get_user_data(resource);
+	if (!c)
+		return;
+
+	uint32_t version = wl_resource_get_version(resource);
+	if (version > GS_HOTKEY_VERSION)
+		version = GS_HOTKEY_VERSION;
+
+	struct wl_resource *res = wl_resource_create(client_unused, &xx_hotkey_v1_interface, version, id);
+	if (!res) {
+		wl_client_post_no_memory(client_unused);
+		return;
+	}
+
+	gs_hotkey_t *h = calloc(1, sizeof(*h));
+	if (!h) {
+		wl_resource_post_no_memory(res);
+		return;
+	}
+	h->resource = res;
+	h->kind = TRIG_NONE;
+	h->active_kind = TRIG_NONE;
+	wl_list_init(&h->link);
+	wl_resource_set_implementation(res, &hotkey_impl, h, gs_hotkey_resource_destroy);
+	wl_list_insert(&gs.hotkeys, &h->link);
+}
+
+static const struct xx_hotkey_manager_v1_interface manager_impl = {
+	.destroy = gs_manager_handle_destroy,
+	.set_app_id = gs_manager_handle_set_app_id,
+	.create_hotkey = gs_manager_handle_create_hotkey,
+};
+
+static void gs_client_resource_destroy(struct wl_resource *resource) {
+	gs_client_t *c = wl_resource_get_user_data(resource);
+	if (!c)
+		return;
+	wl_resource_set_user_data(resource, NULL);
+	wl_list_remove(&c->link);
+	free(c->app_id);
+	free(c);
+}
+
+static void gs_bind_manager(struct wl_client *client_unused, void *data, uint32_t version,
+		uint32_t id) {
+	(void)data;
+	struct wl_resource *res = wl_resource_create(client_unused, &xx_hotkey_manager_v1_interface,
+		version, id);
+	if (!res) {
+		wl_client_post_no_memory(client_unused);
+		return;
+	}
+	gs_client_t *c = calloc(1, sizeof(*c));
+	if (!c) {
+		wl_resource_post_no_memory(res);
+		return;
+	}
+	c->manager_resource = res;
+	wl_list_insert(&gs.clients, &c->link);
+	wl_resource_set_implementation(res, &manager_impl, c, gs_client_resource_destroy);
+}
+
+static void gs_display_destroy_notify(struct wl_listener *listener, void *data) {
+	(void)listener;
+	(void)data;
+	wl_list_remove(&gs.display_destroy.link);
+	gs.display_listener_installed = false;
+	gs.initialized = false;
+	if (gs.global) {
+		wl_global_destroy(gs.global);
+		gs.global = NULL;
+	}
+}
+
+static void gs_destroy(void) {
 	if (!gs.initialized)
 		return;
-
-	gs_session_t *sess, *sess_tmp;
-	wl_list_for_each_safe(sess, sess_tmp, &gs.sessions, link) {
-		session_destroy(sess);
+	gs_hotkey_t *h, *htmp;
+	wl_list_for_each_safe(h, htmp, &gs.hotkeys, link)
+		wl_resource_destroy(h->resource);
+	gs_client_t *c, *ctmp;
+	wl_list_for_each_safe(c, ctmp, &gs.clients, link)
+		wl_resource_destroy(c->manager_resource);
+	if (gs.display_listener_installed) {
+		wl_list_remove(&gs.display_destroy.link);
+		gs.display_listener_installed = false;
 	}
-
-	if (gs.bus_event_source) {
-		wl_event_source_remove(gs.bus_event_source);
-		gs.bus_event_source = NULL;
-	}
-	if (gs.main_slot) {
-		sd_bus_slot_unref(gs.main_slot);
-		gs.main_slot = NULL;
-	}
-	if (gs.bus) {
-		sd_bus_flush(gs.bus);
-		sd_bus_unref(gs.bus);
-		gs.bus = NULL;
-	}
-
+	if (gs.global)
+		wl_global_destroy(gs.global);
+	gs.global = NULL;
 	gs.initialized = false;
 }
 
-bool global_shortcuts_handle_key(uint32_t modifiers, uint32_t keycode, const xkb_keysym_t *syms,
-		int nsyms, uint32_t state, uint32_t time_msec) {
-	(void)keycode;
-
-	if (!gs.initialized || !gs.bus)
-		return false;
-
-	gs_session_t *sess;
-	wl_list_for_each_reverse(sess, &gs.sessions, link) {
-		if (sess->destroyed)
-			continue;
-		gs_shortcut_t *sc;
-		wl_list_for_each(sc, &sess->shortcuts, link) {
-			if (!sc->has_trigger)
-				continue;
-			bool mods_match = (modifiers & sc->modifiers) == sc->modifiers;
-			if (!mods_match)
-				continue;
-			bool keysym_matched = false;
-			for (int i = 0; i < nsyms; i++) {
-				if (syms[i] == sc->keysym) {
-					keysym_matched = true;
-					break;
-				}
-			}
-			if (!keysym_matched)
-				continue;
-			uint64_t timestamp = (uint64_t)time_msec;
-			if (state == WL_KEYBOARD_KEY_STATE_PRESSED) {
-				emit_activated(sess, sc, timestamp);
-				wlr_log(WLR_DEBUG, "activated '%s' from %s", sc->id, sess->app_id);
-			} else {
-				emit_deactivated(sess, sc, timestamp);
-			}
-			return true;
-		}
-	}
-
-	return false;
-}
-
-void global_shortcuts_send_by_app(const char *app_id, const char *shortcut_id, bool pressed) {
-	if (!gs.initialized || !gs.bus || !app_id || !shortcut_id)
-		return;
-
-	struct timespec tp;
-	clock_gettime(CLOCK_MONOTONIC, &tp);
-	uint64_t timestamp = (uint64_t)tp.tv_sec * 1000 + (uint64_t)tp.tv_nsec / 1000000;
-
-	gs_session_t *sess;
-	wl_list_for_each(sess, &gs.sessions, link) {
-		if (sess->destroyed)
-			continue;
-		if (strcmp(sess->app_id, app_id) != 0)
-			continue;
-		gs_shortcut_t *sc;
-		wl_list_for_each(sc, &sess->shortcuts, link) {
-			if (strcmp(sc->id, shortcut_id) == 0) {
-				if (pressed)
-					emit_activated(sess, sc, timestamp);
-				else
-					emit_deactivated(sess, sc, timestamp);
-				return;
-			}
-		}
-	}
-}
-
-void global_shortcuts_list(char *buf, size_t buf_size) {
-	if (!buf || buf_size == 0)
-		return;
-
-	int offset = 0;
-
-	if (!gs.initialized || !gs.bus) {
-		snprintf(buf, buf_size, "not initialized\n");
-		return;
-	}
-
-	gs_session_t *sess;
-	wl_list_for_each(sess, &gs.sessions, link) {
-		if (sess->destroyed)
-			continue;
-		gs_shortcut_t *sc;
-		wl_list_for_each(sc, &sess->shortcuts, link) {
-			int ret = snprintf(buf + offset, buf_size - offset, "%s:%s\t%s\n",
-				sess->app_id ? sess->app_id : "?", sc->id ? sc->id : "?",
-				sc->description ? sc->description : "");
-			if (ret < 0)
-				return;
-			if ((size_t)ret >= buf_size - offset)
-				return;
-			offset += ret;
-		}
-	}
-
-	if (offset == 0)
-		snprintf(buf, buf_size, "none\n");
-}
-
-
-#else // !HAVE_SYSTEMD
-
-#include <stdbool.h>
-#include <stdint.h>
-
 void global_shortcuts_init(void) {
-	// noop
 	ONCE();
+	wl_list_init(&gs.clients);
+	wl_list_init(&gs.hotkeys);
+	gs.global = wl_global_create(server.wl_display, &xx_hotkey_manager_v1_interface, GS_HOTKEY_VERSION,
+		NULL, gs_bind_manager);
+	if (!gs.global) {
+		wlr_log(WLR_ERROR, "xx-hotkey-v1: failed to create global");
+		return;
+	}
+	wl_list_init(&gs.display_destroy.link);
+	gs.display_destroy.notify = gs_display_destroy_notify;
+	wl_display_add_destroy_listener(server.wl_display, &gs.display_destroy);
+	gs.display_listener_installed = true;
+	gs.initialized = true;
 }
 
 void global_shortcuts_fini(void) {
-	// noop
 	ONCE();
+	gs_destroy();
 }
 
-bool global_shortcuts_handle_key(uint32_t modifiers, uint32_t keycode, const xkb_keysym_t *syms,
-		int nsyms, uint32_t state, uint32_t time_msec) {
-	(void)modifiers;
-	(void)keycode;
-	(void)syms;
-	(void)nsyms;
-	(void)state;
-	(void)time_msec;
-	return false;
+static void gs_contaminate_armed(void) {
+	gs_hotkey_t *h;
+	wl_list_for_each(h, &gs.hotkeys, link) {
+		if (h->bound && h->armed)
+			h->contaminated = true;
+	}
 }
 
-void global_shortcuts_send_by_app(const char *app_id, const char *shortcut_id, bool pressed) {
-	(void)app_id;
-	(void)shortcut_id;
-	(void)pressed;
+bool global_shortcuts_handle_key(struct wlr_keyboard *wkb, struct wlr_seat *wlr_seat,
+		uint32_t keycode, uint32_t state, uint32_t time_msec) {
+	if (!gs.initialized || !wkb || !wkb->keymap)
+		return false;
+
+	uint32_t modifiers = wlr_keyboard_get_modifiers(wkb);
+	xkb_keysym_t syms[GS_MAX_SYMS];
+	int nsyms = gs_resolve_base_keysyms(wkb->keymap, keycode, syms, GS_MAX_SYMS);
+
+	bool pressed = state == WL_KEYBOARD_KEY_STATE_PRESSED;
+	if (pressed)
+		gs_contaminate_armed();
+
+	bool consumed = false;
+	gs_hotkey_t *h;
+	wl_list_for_each(h, &gs.hotkeys, link) {
+		if (!h->bound || h->active_kind != TRIG_KEY)
+			continue;
+		if (!gs_seat_matches(h->active_seat, wlr_seat))
+			continue;
+		if ((modifiers & gs_semantic_mods) != (h->active_modifiers & gs_semantic_mods))
+			continue;
+
+		bool matched = false;
+		for (int i = 0; i < nsyms; i++)
+			if (syms[i] == h->active_trigger.keysym) {
+				matched = true;
+			break;
+		}
+		if (!matched)
+			continue;
+
+		if (gs_hotkey_is_tap(h)) {
+			if (pressed) {
+				h->armed = true;
+				h->contaminated = false;
+			} else if (h->armed && !h->contaminated) {
+				uint32_t serial = gs_next_serial();
+				xx_hotkey_v1_send_triggered(h->resource, serial, time_msec);
+				xx_hotkey_v1_send_released(h->resource, serial, time_msec);
+			}
+			h->armed = false;
+		} else {
+			if (pressed) {
+				if (!h->down) {
+					uint32_t serial = gs_next_serial();
+					xx_hotkey_v1_send_triggered(h->resource, serial, time_msec);
+					h->trigger_keycode = keycode;
+					h->down = true;
+				}
+				consumed = true;
+			} else if (h->down && h->trigger_keycode == keycode) {
+				uint32_t serial = gs_next_serial();
+				xx_hotkey_v1_send_released(h->resource, serial, time_msec);
+				h->down = false;
+				consumed = true;
+			}
+		}
+	}
+	return consumed;
+}
+
+bool global_shortcuts_handle_button(struct wlr_seat *wlr_seat, uint32_t modifiers, uint32_t button,
+		uint32_t state, uint32_t time_msec) {
+	if (!gs.initialized)
+		return false;
+
+	bool pressed = state == WL_POINTER_BUTTON_STATE_PRESSED;
+	if (pressed)
+		gs_contaminate_armed();
+
+	bool consumed = false;
+	gs_hotkey_t *h;
+	wl_list_for_each(h, &gs.hotkeys, link) {
+		if (!h->bound || h->active_kind != TRIG_BUTTON)
+			continue;
+		if (!gs_seat_matches(h->active_seat, wlr_seat))
+			continue;
+		if ((modifiers & gs_semantic_mods) != (h->active_modifiers & gs_semantic_mods))
+			continue;
+		if (h->active_trigger.button != button)
+			continue;
+
+		if (pressed) {
+			if (!h->down) {
+				uint32_t serial = gs_next_serial();
+				xx_hotkey_v1_send_triggered(h->resource, serial, time_msec);
+				h->down = true;
+			}
+			consumed = true;
+		} else if (h->down) {
+			uint32_t serial = gs_next_serial();
+			xx_hotkey_v1_send_released(h->resource, serial, time_msec);
+			h->down = false;
+			consumed = true;
+		}
+	}
+	return consumed;
+}
+
+static void gs_format_trigger(const gs_hotkey_t *h, char *out, size_t size) {
+	size_t n = 0;
+	if (h->active_kind == TRIG_KEY) {
+		uint32_t m = h->active_modifiers;
+		if (m & WLR_MODIFIER_SHIFT)
+			n += snprintf(out + n, size - n, "Shift+");
+		if (m & WLR_MODIFIER_CTRL)
+			n += snprintf(out + n, size - n, "Ctrl+");
+		if (m & WLR_MODIFIER_ALT)
+			n += snprintf(out + n, size - n, "Alt+");
+		if (m & WLR_MODIFIER_LOGO)
+			n += snprintf(out + n, size - n, "Super+");
+		char kn[32];
+		xkb_keysym_get_name(h->active_trigger.keysym, kn, sizeof(kn));
+		n += snprintf(out + n, size - n, "%s", kn);
+	} else if (h->active_kind == TRIG_BUTTON) {
+		n += snprintf(out + n, size - n, "Button(0x%x)", h->active_trigger.button);
+	}
+	if (gs_hotkey_is_tap(h))
+		n += snprintf(out + n, size - n, " [tap]");
+	if (n >= size)
+		out[size - 1] = '\0';
 }
 
 void global_shortcuts_list(char *buf, size_t buf_size) {
-	if (buf && buf_size)
-		snprintf(buf, buf_size, "not available (no systemd)\n");
+	size_t off = 0;
+	off += snprintf(buf + off, buf_size - off, "global shortcuts (xx-hotkey-v1):\n");
+	if (off >= buf_size)
+		return;
+
+	gs_hotkey_t *h;
+	wl_list_for_each(h, &gs.hotkeys, link) {
+		if (!h->bound)
+			continue;
+		char trig[128];
+		gs_format_trigger(h, trig, sizeof(trig));
+		const char *app = (h->app_id && h->app_id[0]) ? h->app_id : "(unidentified)";
+		const char *desc = (h->active_desc && h->active_desc[0]) ? h->active_desc : "(none)";
+		off += snprintf(buf + off, buf_size - off, "\t%s\t%s\tdesc: %s\n", app, trig, desc);
+		if (off >= buf_size)
+			return;
+	}
 }
-
-
-#endif // HAVE_SYSTEMD

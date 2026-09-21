@@ -1,6 +1,7 @@
 #include "config.h"
 #include "cursor.h"
 #include "effects.h"
+#include "global_shortcuts.h"
 #include "idle_power.h"
 #include "input_method.h"
 #include "keyboard.h"
@@ -28,6 +29,7 @@
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_data_device.h>
 #include <wlr/types/wlr_idle_notify_v1.h>
+#include <wlr/types/wlr_keyboard.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_pointer.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
@@ -747,6 +749,21 @@ static uint32_t edges_from_cursor(const struct wlr_box *rect, uint32_t allowed_e
 void cursor_button(struct wl_listener *listener, void *data) {
 	(void)listener;
 	struct wlr_pointer_button_event *event = data;
+
+	uint32_t modifiers = 0;
+	struct wlr_keyboard *kbd = wlr_seat_get_keyboard(server.seat);
+	if (kbd)
+		modifiers = wlr_keyboard_get_modifiers(kbd);
+
+	if (global_shortcuts_handle_button(server.seat, modifiers, event->button, event->state,
+			event->time_msec)) {
+		wlr_idle_notifier_v1_notify_activity(server.idle_notifier, server.seat);
+		idle_power_notify_activity();
+		if (event->state == WL_POINTER_BUTTON_STATE_RELEASED)
+			reset_cursor_mode();
+		return;
+	}
+
 	wlr_seat_pointer_notify_button(server.seat, event->time_msec, event->button, event->state);
 	wlr_idle_notifier_v1_notify_activity(server.idle_notifier, server.seat);
 	idle_power_notify_activity();

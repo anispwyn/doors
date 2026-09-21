@@ -1,5 +1,4 @@
 #include "config.h"
-#include "global_shortcuts.h"
 #include "keyboard.h"
 #include "launcher.h"
 #include "master_stack.h"
@@ -232,9 +231,6 @@ bind_action_t parse_action(const char *cmd, int *desktop_index, char *submap_nam
 			snprintf(submap_name, MAXLEN, "%s", cmd + 1);
 		return BIND_ENTER_SUBMAP;
 	}
-
-	if (strncmp(cmd, "global-shortcut ", 16) == 0)
-		return BIND_GLOBAL_SHORTCUT;
 
 	if (strncmp(cmd, "doorsctl ", 9) != 0)
 		return BIND_EXTERNAL;
@@ -699,7 +695,7 @@ static void parse_hotkey_line(const char *hotkey_str, const char *command_str) {
 			bind_action_t action = parse_action(single_cmd, &desktop_index, submap_name);
 			wlr_log(WLR_DEBUG, "Parsed action: %d for cmd: '%s' submap: '%s'", action, single_cmd,
 				submap_name);
-			if (action != BIND_EXTERNAL && action != BIND_GLOBAL_SHORTCUT)
+			if (action != BIND_EXTERNAL)
 				add_keybind(modifiers, keysym, keycode, use_keycode, action, desktop_index, NULL,
 					submap_name[0] ? submap_name : NULL);
 			else
@@ -1283,22 +1279,6 @@ void execute_bind(bind_t b) {
 	case BIND_INTERACTIVE_MOVE:
 	case BIND_INTERACTIVE_RESIZE:
 	case BIND_TILING_DRAG:
-		break;
-	case BIND_GLOBAL_SHORTCUT:
-		if (b.external_cmd[0] != '\0') {
-			char app_id[256], shortcut_id[256];
-			const char *args = b.external_cmd + 16;
-			const char *space = strchr(args, ' ');
-			if (space) {
-				size_t app_len = (size_t)(space - args);
-				if (app_len >= sizeof(app_id))
-					app_len = sizeof(app_id) - 1;
-				memcpy(app_id, args, app_len);
-				app_id[app_len] = '\0';
-				snprintf(shortcut_id, sizeof(shortcut_id), "%s", space + 1);
-				global_shortcuts_send_by_app(app_id, shortcut_id, true);
-			}
-		}
 		break;
 	}
 }
