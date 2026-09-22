@@ -63,6 +63,7 @@ protocols = [
 	'protocols' / 'wlr-screencopy-unstable-v1.xml',
 	'protocols' / 'ext-image-capture-source-v1.xml',
 	'protocols' / 'ext-image-copy-capture-v1.xml',
+	'protocols' / 'xx-hotkey-v1.xml',
 ]
 
 wl_protos_src = []
