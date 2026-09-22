@@ -512,21 +512,8 @@ void output_create(struct wlr_output *wlr_output) {
 		arrange(output, output->desk, true);
 	} else {
 		desktop_t *d = calloc(1, sizeof(desktop_t));
-		if (d) {
-			d->id = next_desktop_id++;
-			strncpy(d->name, "default", SMALEN - 1);
-			layout_set(d, LAYOUT_TILED);
-			d->user_layout = LAYOUT_TILED;
-			d->window_gap = settings.window_gap;
-			d->master_stack_count = 1;
-			d->padding = (padding_t){0};
-			d->root = NULL;
-			d->focus = NULL;
-			d->output = output;
-
-			wl_list_insert(output->desk_list.prev, &d->link);
-			output->desk = d;
-		}
+		if (d)
+			desktop_init(d, output, "default");
 	}
 
 	// add to monitor linked list

@@ -1,5 +1,6 @@
 #include "animation.h"
 #include "ipc.h"
+#include "layout.h"
 #include "once.h"
 #include "output.h"
 #include "server.h"
@@ -176,6 +177,23 @@ void workspace_sync(void) {
 	}
 
 	wlr_log(WLR_INFO, "Workspace manager synced");
+}
+
+void desktop_init(desktop_t *d, output_t *output, const char *name) {
+	memset(d, 0, sizeof(*d));
+	d->id = next_desktop_id++;
+	strncpy(d->name, name, SMALEN - 1);
+	d->name[SMALEN - 1] = '\0';
+	layout_set(d, LAYOUT_TILED);
+	d->user_layout = LAYOUT_TILED;
+	d->window_gap = settings.window_gap;
+	d->master_stack_count = 1;
+	d->padding = (padding_t){0};
+	d->output = output;
+	wl_list_init(&d->link);
+	if (wl_list_empty(&output->desk_list))
+		output->desk = d;
+	wl_list_insert(output->desk_list.prev, &d->link);
 }
 
 void workspace_create_desktop(const char *name) {

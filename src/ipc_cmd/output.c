@@ -504,22 +504,7 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 				wlr_log(WLR_ERROR, "allocation failed");
 				return;
 			}
-			d->id = next_desktop_id++;
-			strncpy(d->name, *args, SMALEN - 1);
-			d->name[SMALEN - 1] = '\0';
-			d->layout = LAYOUT_TILED;
-			d->user_layout = LAYOUT_TILED;
-			d->window_gap = settings.window_gap;
-			d->master_stack_count = 1;
-			d->padding = (padding_t){0};
-			d->root = NULL;
-			d->focus = NULL;
-
-			if (wl_list_empty(&mon->desk_list))
-				mon->desk = d;
-			wl_list_init(&d->link);
-			wl_list_insert(mon->desk_list.prev, &d->link);
-			d->output = mon;
+			desktop_init(d, mon, *args);
 
 			workspace_create_desktop(d->name);
 			ipc_put_status(SUB_MASK_DESKTOP_ADD, "desktop_add[%s]\n", d->name);
@@ -562,22 +547,7 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 					wlr_log(WLR_ERROR, "allocation failed");
 					return;
 				}
-				newd->id = next_desktop_id++;
-				strncpy(newd->name, *args, SMALEN - 1);
-				newd->name[SMALEN - 1] = '\0';
-				newd->layout = LAYOUT_TILED;
-				newd->user_layout = LAYOUT_TILED;
-				newd->window_gap = settings.window_gap;
-				newd->master_stack_count = 1;
-				newd->padding = (padding_t){0};
-				newd->root = NULL;
-				newd->focus = NULL;
-
-				if (wl_list_empty(&mon->desk_list))
-					mon->desk = newd;
-				wl_list_init(&newd->link);
-				wl_list_insert(mon->desk_list.prev, &newd->link);
-				newd->output = mon;
+				desktop_init(newd, mon, *args);
 
 				workspace_create_desktop(newd->name);
 				args++;

@@ -30,9 +30,6 @@ typedef struct image_copy_source_t {
 	struct wlr_ext_image_capture_source_v1 base;
 	struct wlr_output *output;
 	struct wlr_buffer *last_buffer;
-	/* private swapchain so captures never consume the real output's 4
-	 * swapchain slots: exhausting those leaves the output with no free
-	 * back buffer and the whole screen renders black */
 	struct wlr_swapchain *swapchain;
 	struct wl_listener output_commit;
 	struct wl_listener output_destroy;
@@ -402,6 +399,17 @@ static void frame_handle_damage_buffer(struct wl_client *wl_client,
 	pixman_region32_union_rect(&frame->buffer_damage, &frame->buffer_damage, x, y, width, height);
 }
 
+static void send_presentation_time(struct wl_resource *resource) {
+	struct timespec now;
+	clock_gettime(CLOCK_MONOTONIC, &now);
+	time_t tv_sec = now.tv_sec;
+	uint32_t tv_sec_hi = (sizeof(tv_sec) > 4) ? tv_sec >> 32 : 0;
+	uint32_t tv_sec_lo = tv_sec & 0xFFFFFFFF;
+	ext_image_copy_capture_frame_v1_send_presentation_time(resource, tv_sec_hi, tv_sec_lo,
+		now.tv_nsec);
+	ext_image_copy_capture_frame_v1_send_ready(resource);
+}
+
 static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src) {
 	struct wlr_output *output = src->output;
 
@@ -546,15 +554,7 @@ out:
 
 	ext_image_copy_capture_frame_v1_send_transform(frame->resource, WL_OUTPUT_TRANSFORM_NORMAL);
 
-	struct timespec now;
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	time_t tv_sec = now.tv_sec;
-	uint32_t tv_sec_hi = (sizeof(tv_sec) > 4) ? tv_sec >> 32 : 0;
-	uint32_t tv_sec_lo = tv_sec & 0xFFFFFFFF;
-	ext_image_copy_capture_frame_v1_send_presentation_time(frame->resource, tv_sec_hi, tv_sec_lo,
-		now.tv_nsec);
-
-	ext_image_copy_capture_frame_v1_send_ready(frame->resource);
+	send_presentation_time(frame->resource);
 	return true;
 }
 
@@ -775,15 +775,7 @@ static bool perform_scene_node_capture(copy_frame_t *frame,
 
 	ext_image_copy_capture_frame_v1_send_transform(frame->resource, WL_OUTPUT_TRANSFORM_NORMAL);
 
-	struct timespec now;
-	clock_gettime(CLOCK_MONOTONIC, &now);
-	time_t tv_sec = now.tv_sec;
-	uint32_t tv_sec_hi = (sizeof(tv_sec) > 4) ? tv_sec >> 32 : 0;
-	uint32_t tv_sec_lo = tv_sec & 0xFFFFFFFF;
-	ext_image_copy_capture_frame_v1_send_presentation_time(frame->resource, tv_sec_hi, tv_sec_lo,
-		now.tv_nsec);
-
-	ext_image_copy_capture_frame_v1_send_ready(frame->resource);
+	send_presentation_time(frame->resource);
 	return true;
 }
 

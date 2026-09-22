@@ -9,37 +9,48 @@
 #include "spring.h"
 #include "transaction.h"
 #include "tree.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-void ipc_cmd_focus(char **args, int num, int client_fd) {
+static void ipc_cmd_bind_dir(char **args, int num, int client_fd, const char *verb,
+		const char *success_msg, bool (*filter)(bind_action_t)) {
 	if (num < 1) {
-		send_failure(client_fd, "focus: missing direction\n");
+		char buf[128];
+		snprintf(buf, sizeof(buf), "%s: missing direction\n", verb);
+		send_failure(client_fd, buf);
 		return;
 	}
 
 	bind_action_t action = bind_action_from_name(*args);
-	if (action != BIND_NONE) {
+	if (action != BIND_NONE && (!filter || filter(action))) {
 		execute_bind_action(action);
-		send_success(client_fd, "focused\n");
+		send_success(client_fd, success_msg);
 	} else {
-		send_failure(client_fd, "focus: unknown direction\n");
+		char buf[128];
+		snprintf(buf, sizeof(buf), "%s: unknown direction\n", verb);
+		send_failure(client_fd, buf);
 	}
 }
 
-void ipc_cmd_swap(char **args, int num, int client_fd) {
-	if (num < 1) {
-		send_failure(client_fd, "swap: missing direction\n");
-		return;
-	}
+static bool is_rotate_action(bind_action_t a) {
+	return a == BIND_ROTATE_CW || a == BIND_ROTATE_CCW;
+}
 
-	bind_action_t action = bind_action_from_name(*args);
-	if (action != BIND_NONE) {
-		execute_bind_action(action);
-		send_success(client_fd, "swapped\n");
-	} else {
-		send_failure(client_fd, "swap: unknown direction\n");
-	}
+static bool is_flip_action(bind_action_t a) {
+	return a == BIND_FLIP_HORIZONTAL || a == BIND_FLIP_VERTICAL;
+}
+
+void ipc_cmd_focus(char **args, int num, int client_fd) {
+	ipc_cmd_bind_dir(args, num, client_fd, "focus", "focused\n", NULL);
+}
+
+void ipc_cmd_swap(char **args, int num, int client_fd) {
+	ipc_cmd_bind_dir(args, num, client_fd, "swap", "swapped\n", NULL);
+}
+
+void ipc_cmd_resize(char **args, int num, int client_fd) {
+	ipc_cmd_bind_dir(args, num, client_fd, "resize", "resized\n", NULL);
 }
 
 void ipc_cmd_presel(char **args, int num, int client_fd) {
@@ -62,20 +73,57 @@ void ipc_cmd_presel(char **args, int num, int client_fd) {
 	}
 }
 
-void ipc_cmd_resize(char **args, int num, int client_fd) {
-	if (num < 1) {
-		send_failure(client_fd, "resize: missing direction\n");
+void ipc_cmd_rotate(char **args, int num, int client_fd) {
+	ipc_cmd_bind_dir(args, num, client_fd, "rotate", "rotated\n", is_rotate_action);
+}
+
+void ipc_cmd_flip(char **args, int num, int client_fd) {
+	ipc_cmd_bind_dir(args, num, client_fd, "flip", "flipped\n", is_flip_action);
+}
+
+static void ipc_cmd_tree_op(char **args, int num, int client_fd, const char *verb,
+		const char *success_msg, void (*fn)(node_t * )) {
+	(void)args;
+	(void)num;
+
+	output_t *m = server.focused_output;
+	if (!m || !m->desk) {
+		char buf[128];
+		snprintf(buf, sizeof(buf), "%s: no focused desktop\n", verb);
+		send_failure(client_fd, buf);
 		return;
 	}
 
-	bind_action_t action = bind_action_from_name(*args);
-	if (action != BIND_NONE) {
-		execute_bind_action(action);
-		send_success(client_fd, "resized\n");
-	} else {
-		send_failure(client_fd, "resize: unknown direction\n");
+	if (!m->desk->root) {
+		char buf[128];
+		snprintf(buf, sizeof(buf), "%s: no tree\n", verb);
+		send_failure(client_fd, buf);
+		return;
 	}
+
+	fn(m->desk->root);
+	transaction_commit_dirty();
+	send_success(client_fd, success_msg);
 }
+
+void ipc_cmd_equalize(char **args, int num, int client_fd) {
+	ipc_cmd_tree_op(args, num, client_fd, "equalize", "equalized\n", equalize_tree);
+}
+
+void ipc_cmd_balance(char **args, int num, int client_fd) {
+	ipc_cmd_tree_op(args, num, client_fd, "balance", "balanced\n", balance_tree);
+}
+
+static const struct {
+	const char *name;
+	void (*toggle_fn)(void);
+} toggle_props[] = {
+	{"floating", toggle_floating},
+	{"fullscreen", toggle_fullscreen},
+	{"pseudo_tiled", toggle_pseudo_tiled},
+	{"monocle", toggle_monocle},
+	{"block_out_from_screenshare", toggle_block_out_from_screenshare},
+};
 
 void ipc_cmd_toggle(char **args, int num, int client_fd) {
 	if (num < 1) {
@@ -83,94 +131,14 @@ void ipc_cmd_toggle(char **args, int num, int client_fd) {
 		return;
 	}
 
-	if (streq("floating", *args)) {
-		toggle_floating();
-		send_success(client_fd, "toggled\n");
-	} else if (streq("fullscreen", *args)) {
-		toggle_fullscreen();
-		send_success(client_fd, "toggled\n");
-	} else if (streq("pseudo_tiled", *args)) {
-		toggle_pseudo_tiled();
-		send_success(client_fd, "toggled\n");
-	} else if (streq("monocle", *args)) {
-		toggle_monocle();
-		send_success(client_fd, "toggled\n");
-	} else if (streq("block_out_from_screenshare", *args)) {
-		toggle_block_out_from_screenshare();
-		send_success(client_fd, "toggled\n");
-	} else {
-		send_failure(client_fd, "toggle: unknown property\n");
+	for (size_t i = 0; i < sizeof(toggle_props) / sizeof(toggle_props[0]); i++) {
+		if (streq(toggle_props[i].name, *args)) {
+			toggle_props[i].toggle_fn();
+			send_success(client_fd, "toggled\n");
+			return;
+		}
 	}
-}
-
-void ipc_cmd_rotate(char **args, int num, int client_fd) {
-	if (num < 1) {
-		send_failure(client_fd, "rotate: missing direction\n");
-		return;
-	}
-
-	bind_action_t action = bind_action_from_name(*args);
-	if (action == BIND_ROTATE_CW || action == BIND_ROTATE_CCW) {
-		execute_bind_action(action);
-		send_success(client_fd, "rotated\n");
-	} else {
-		send_failure(client_fd, "rotate: unknown direction\n");
-	}
-}
-
-void ipc_cmd_flip(char **args, int num, int client_fd) {
-	if (num < 1) {
-		send_failure(client_fd, "flip: missing direction\n");
-		return;
-	}
-
-	bind_action_t action = bind_action_from_name(*args);
-	if (action == BIND_FLIP_HORIZONTAL || action == BIND_FLIP_VERTICAL) {
-		execute_bind_action(action);
-		send_success(client_fd, "flipped\n");
-	} else {
-		send_failure(client_fd, "flip: unknown direction\n");
-	}
-}
-
-void ipc_cmd_equalize(char **args, int num, int client_fd) {
-	(void)args;
-	(void)num;
-
-	output_t *m = server.focused_output;
-	if (!m || !m->desk) {
-		send_failure(client_fd, "equalize: no focused desktop\n");
-		return;
-	}
-
-	if (!m->desk->root) {
-		send_failure(client_fd, "equalize: no tree\n");
-		return;
-	}
-
-	equalize_tree(m->desk->root);
-	transaction_commit_dirty();
-	send_success(client_fd, "equalized\n");
-}
-
-void ipc_cmd_balance(char **args, int num, int client_fd) {
-	(void)args;
-	(void)num;
-
-	output_t *m = server.focused_output;
-	if (!m || !m->desk) {
-		send_failure(client_fd, "balance: no focused desktop\n");
-		return;
-	}
-
-	if (!m->desk->root) {
-		send_failure(client_fd, "balance: no tree\n");
-		return;
-	}
-
-	balance_tree(m->desk->root);
-	transaction_commit_dirty();
-	send_success(client_fd, "balanced\n");
+	send_failure(client_fd, "toggle: unknown property\n");
 }
 
 void ipc_cmd_send(char **args, int num, int client_fd) {

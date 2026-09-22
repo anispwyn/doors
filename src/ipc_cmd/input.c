@@ -91,18 +91,6 @@ void ipc_cmd_input(char **args, int num, int client_fd) {
 		return;
 	}
 
-	if (!config) {
-		send_failure(client_fd, "input: failed to create config\n");
-		return;
-	}
-	config->type = type;
-
-	if (!input_config_set_value(config, property, value)) {
-		input_config_destroy(config);
-		send_failure(client_fd, "input: unknown property\n");
-		return;
-	}
-
 	input_apply_config_all_pointers();
 	input_apply_config_all_keyboards();
 }

@@ -47,6 +47,24 @@ static void tabs_rebuild_all(void) {
 	}
 }
 
+static void ipc_handle_border_color(char **args, int num, int client_fd, char *field,
+		size_t field_size, const char *name, bool refresh_colors, bool commit_dirty) {
+	if (num >= 2) {
+		strncpy(field, args[1], field_size - 1);
+		field[field_size - 1] = '\0';
+		if (refresh_colors)
+			refresh_border_colors();
+		if (commit_dirty)
+			transaction_commit_dirty();
+		char msg[128];
+		snprintf(msg, sizeof(msg), "%s set\n", name);
+		send_success(client_fd, msg);
+	} else {
+		send_success(client_fd, field);
+		send_success(client_fd, "\n");
+	}
+}
+
 void ipc_cmd_config(char **args, int num, int client_fd) {
 	if (num < 1) {
 		send_failure(client_fd, "config: Missing arguments\n");
@@ -366,58 +384,20 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 		ipc_handle_int(args, num, client_fd, &settings.padding.left, IPC_FLAG_COMMIT, INT_MIN, INT_MAX,
 			NULL);
 	} else if (streq("normal_border_color", *args)) {
-		if (num >= 2) {
-			strncpy(settings.normal_border_color, args[1], sizeof(settings.normal_border_color) - 1);
-			settings.normal_border_color[sizeof(settings.normal_border_color) - 1] = '\0';
-			refresh_border_colors();
-			transaction_commit_dirty();
-			send_success(client_fd, "normal_border_color set\n");
-		} else {
-			send_success(client_fd, settings.normal_border_color);
-			send_success(client_fd, "\n");
-		}
+		ipc_handle_border_color(args, num, client_fd, settings.normal_border_color,
+			sizeof(settings.normal_border_color), "normal_border_color", true, true);
 	} else if (streq("active_border_color", *args)) {
-		if (num >= 2) {
-			strncpy(settings.active_border_color, args[1], sizeof(settings.active_border_color) - 1);
-			settings.active_border_color[sizeof(settings.active_border_color) - 1] = '\0';
-			refresh_border_colors();
-			transaction_commit_dirty();
-			send_success(client_fd, "active_border_color set\n");
-		} else {
-			send_success(client_fd, settings.active_border_color);
-			send_success(client_fd, "\n");
-		}
+		ipc_handle_border_color(args, num, client_fd, settings.active_border_color,
+			sizeof(settings.active_border_color), "active_border_color", true, true);
 	} else if (streq("focused_border_color", *args)) {
-		if (num >= 2) {
-			strncpy(settings.focused_border_color, args[1], sizeof(settings.focused_border_color) - 1);
-			settings.focused_border_color[sizeof(settings.focused_border_color) - 1] = '\0';
-			refresh_border_colors();
-			transaction_commit_dirty();
-			send_success(client_fd, "focused_border_color set\n");
-		} else {
-			send_success(client_fd, settings.focused_border_color);
-			send_success(client_fd, "\n");
-		}
+		ipc_handle_border_color(args, num, client_fd, settings.focused_border_color,
+			sizeof(settings.focused_border_color), "focused_border_color", true, true);
 	} else if (streq("presel_feedback_color", *args)) {
-		if (num >= 2) {
-			strncpy(settings.presel_feedback_color, args[1], sizeof(settings.presel_feedback_color) - 1);
-			settings.presel_feedback_color[sizeof(settings.presel_feedback_color) - 1] = '\0';
-			transaction_commit_dirty();
-			send_success(client_fd, "presel_feedback_color set\n");
-		} else {
-			send_success(client_fd, settings.presel_feedback_color);
-			send_success(client_fd, "\n");
-		}
+		ipc_handle_border_color(args, num, client_fd, settings.presel_feedback_color,
+			sizeof(settings.presel_feedback_color), "presel_feedback_color", false, true);
 	} else if (streq("tiling_drag_indicator_color", *args)) {
-		if (num >= 2) {
-			strncpy(settings.tiling_drag_indicator_color, args[1],
-				sizeof(settings.tiling_drag_indicator_color) - 1);
-			settings.tiling_drag_indicator_color[sizeof(settings.tiling_drag_indicator_color) - 1] = '\0';
-			send_success(client_fd, "tiling_drag_indicator_color set\n");
-		} else {
-			send_success(client_fd, settings.tiling_drag_indicator_color);
-			send_success(client_fd, "\n");
-		}
+		ipc_handle_border_color(args, num, client_fd, settings.tiling_drag_indicator_color,
+			sizeof(settings.tiling_drag_indicator_color), "tiling_drag_indicator_color", false, false);
 	} else if (streq("normal_border_gradient", *args) || streq("active_border_gradient",
 			*args) || streq("focused_border_gradient", *args) || streq("normal_border_gradient2",
 			*args) || streq("active_border_gradient2", *args) || streq("focused_border_gradient2",
