@@ -16,7 +16,6 @@
 - Better tab grouping (see sway or Hyprland for reference)
 - Better scrolling layout handling (see niri for reference)
 - Some toplevels open smaller in height and then take their correct size a frame later
-- Undersized toplevels jump to a corner when rearranging the tiled layout
 - Layout isn't rearranged on output scale change
 
 # Misc

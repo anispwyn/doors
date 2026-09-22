@@ -606,12 +606,6 @@ bool animation_start_resize(toplevel_t *toplevel, struct wlr_box from, struct wl
 		entry = create_animation_entry();
 		if (!entry)
 			return false;
-		from.x = (int)toplevel->scene_tree->node.x;
-		from.y = (int)toplevel->scene_tree->node.y;
-		if (from.width < (int)toplevel->geometry.width)
-			from.width = (int)toplevel->geometry.width;
-		if (from.height < (int)toplevel->geometry.height)
-			from.height = (int)toplevel->geometry.height;
 	}
 
 	entry->kind = ANIM_KIND_RESIZE;
@@ -692,18 +686,13 @@ static void update_resize_entry(animation_entry_t *entry) {
 			int geo_w = (int)entry->toplevel->geometry.width;
 			int geo_h = (int)entry->toplevel->geometry.height;
 
-			// always honour anchored edges, even for undersized surfaces
 			int cx, cy;
-			if (entry->from.x == entry->to.x)
-				cx = 0;
-			else if (from_right == to_right)
+			if (entry->from.x == entry->to.x && from_right != to_right)
 				cx = width - geo_w;
 			else
 				cx = (width - geo_w) / 2;
 
-			if (entry->from.y == entry->to.y)
-				cy = 0;
-			else if (from_bottom == to_bottom)
+			if (entry->from.y == entry->to.y && from_bottom != to_bottom)
 				cy = height - geo_h;
 			else
 				cy = (height - geo_h) / 2;
@@ -864,8 +853,12 @@ bool animation_apply_geometry_from(node_t *node, struct wlr_scene_tree *scene_tr
 			return true;
 	}
 
-	if (animation_is_resizing(node))
+	if (animation_is_resizing(node)) {
+		animation_entry_t *entry = find_animation(node);
+		if (entry)
+			entry->to = target;
 		return true;
+	}
 
 	output_t *output = node->output;
 	if (!animate || !settings.enable_animations || !output || !output->enabled || !node->client ||
