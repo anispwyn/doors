@@ -615,22 +615,13 @@ doorsctl send next                      # Send focused window to next desktop
 doorsctl send prev|previous             # Send focused window to previous desktop
 ```
 
-### Global Shortcuts (Portal)
+### Global Shortcuts (xx-hotkey-v1)
 
-Doors implements the XDG Desktop Portal `GlobalShortcuts` interface on
-`org.freedesktop.impl.portal.desktop.doors`. Applications can register global
-shortcuts via the portal, and Doors notifies them when the bound key is pressed.
-
-```
-super + F1
-  global-shortcut com.appname.app action-name
-```
+Prints out all currently registered binds registered through the global shortcuts protocol.
 
 ```
 doorsctl globalshortcuts
 ```
-
-List all currently registered global shortcuts across all portal sessions. If none are registered, prints `none`.
 
 #### Other Commands
 
