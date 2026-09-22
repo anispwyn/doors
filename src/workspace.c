@@ -26,9 +26,13 @@ static struct wlr_ext_workspace_handle_v1 *find_workspace_by_name(const char *na
 }
 
 static struct wlr_box window_target_rect(node_t *n) {
-	if (n && n->client && n->client->state == STATE_FLOATING)
+	if (!n || !n->client)
+		return (struct wlr_box){0};
+	if (n->client->state == STATE_FULLSCREEN && n->output)
+		return n->output->rectangle;
+	if (n->client->state == STATE_FLOATING)
 		return n->client->floating_rectangle;
-	return n ? n->client->tiled_rectangle : (struct wlr_box){0};
+	return n->client->tiled_rectangle;
 }
 
 typedef struct {
@@ -377,17 +381,18 @@ static void workspace_switch_animate(output_t *output, desktop_t *old_desk, desk
 		while (desktop_window_iter_advance(&it, &n, &tree)) {
 			if (!tree || !tree->node.enabled)
 				continue;
+			struct wlr_box target = window_target_rect(n);
 			struct wlr_box from = {
 				tree->node.x,
 				tree->node.y,
-				0,
-				0
+				target.width,
+				target.height
 			};
 			struct wlr_box to = {
 				from.x + num_steps * dx,
 				from.y + num_steps * dy,
-				0,
-				0
+				target.width,
+				target.height
 			};
 			animation_start_workspace_slide(output, n, tree, from, to, true);
 		}
@@ -435,14 +440,14 @@ static void workspace_switch_animate(output_t *output, desktop_t *old_desk, desk
 			struct wlr_box from = {
 				target.x - k * dx,
 				target.y - k * dy,
-				0,
-				0
+				target.width,
+				target.height
 			};
 			struct wlr_box to = {
 				target.x + (num_steps - k) * dx,
 				target.y + (num_steps - k) * dy,
-				0,
-				0
+				target.width,
+				target.height
 			};
 			wlr_scene_node_set_position(&tree->node, from.x, from.y);
 			animation_start_workspace_slide(output, n, tree, from, to, true);
@@ -488,8 +493,8 @@ static void workspace_switch_animate(output_t *output, desktop_t *old_desk, desk
 			struct wlr_box from = {
 				target.x - num_steps * dx,
 				target.y - num_steps * dy,
-				0,
-				0
+				target.width,
+				target.height
 			};
 			wlr_scene_node_set_position(&tree->node, from.x, from.y);
 			animation_start_workspace_slide(output, n, tree, from, target, false);

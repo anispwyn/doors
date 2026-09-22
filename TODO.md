@@ -4,8 +4,6 @@
 - Custom animation shaders for windows (e.g. open/close animations)
 - Send to desktop animation?
 - Resize animation still looks buggy
-- During desktop switch animation, rounded corner masks are not present or move unexpectedly (looks like their surface is "scaled", they move from the top left corner ntil they reach their final position)
-- During desktop switch animation, if the desktop being switched from contains a toplevel with rounded borders + mica (may also happen on just rounded borders or just mica, unsure), its surface is replaced with a downsampled screen capture
 
 # Effects
 - Effects per window state (e.g. unfocused, focused, ...)
@@ -18,6 +16,7 @@
 - Better tab grouping (see sway or Hyprland for reference)
 - Better scrolling layout handling (see niri for reference)
 - Some toplevels open smaller in height and then take their correct size a frame later
+- Undersized toplevels jump to a corner when rearranging the tiled layout
 - Layout isn't rearranged on output scale change
 
 # Misc

@@ -521,6 +521,8 @@ bool animation_start_workspace_slide(output_t *output, node_t *node,
 		entry->output = output;
 		entry->from.x = scene_tree->node.x;
 		entry->from.y = scene_tree->node.y;
+		entry->from.width = to.width;
+		entry->from.height = to.height;
 		entry->to = to;
 		entry->kind = ANIM_KIND_WORKSPACE_SLIDE;
 		entry->slide_out = slide_out;

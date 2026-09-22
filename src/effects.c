@@ -1888,6 +1888,24 @@ static be_effect_resource_t capture_corner_mask_bg(output_t *output, effects_out
 	return result;
 }
 
+// window rect in layout coords including the content offset and clamped to the
+// surface size when it is smaller than its container
+static struct wlr_box corner_mask_content_rect(toplevel_t *tl) {
+	struct wlr_box container_r = get_animated_client_rect(tl);
+	int cx = tl->content_tree->node.x;
+	int cy = tl->content_tree->node.y;
+	int surf_w = (tl->geometry.width > 0 &&
+		tl->geometry.width < container_r.width) ? (int)tl->geometry.width : container_r.width;
+	int surf_h = (tl->geometry.height > 0 &&
+		tl->geometry.height < container_r.height) ? (int)tl->geometry.height : container_r.height;
+	return (struct wlr_box){
+		.x = container_r.x + cx,
+		.y = container_r.y + cy,
+		.width = surf_w,
+		.height = surf_h,
+	};
+}
+
 static bool rebuild_corner_masks(output_t *output) {
 	effects_output_t *ctx = output->effects;
 	int w = output->width, h = output->height;
@@ -1906,19 +1924,7 @@ static bool rebuild_corner_masks(output_t *output) {
 		if (c->border_radius <= 0.0f || c->state == STATE_FULLSCREEN)
 			continue;
 
-		struct wlr_box container_r = get_animated_client_rect(tl);
-		int cx = tl->content_tree->node.x;
-		int cy = tl->content_tree->node.y;
-		int surf_w = (tl->geometry.width > 0 &&
-			tl->geometry.width < container_r.width) ? (int)tl->geometry.width : container_r.width;
-		int surf_h = (tl->geometry.height > 0 &&
-			tl->geometry.height < container_r.height) ? (int)tl->geometry.height : container_r.height;
-		struct wlr_box content_r = {
-			.x = container_r.x + cx,
-			.y = container_r.y + cy,
-			.width = surf_w,
-			.height = surf_h,
-		};
+		struct wlr_box content_r = corner_mask_content_rect(tl);
 		if (content_r.width <= 0 || content_r.height <= 0)
 			continue;
 
@@ -1989,7 +1995,7 @@ static void push_corner_masks_to_toplevels(output_t *output, bool rebuilt) {
 			continue;
 
 		if (!rebuilt) {
-			struct wlr_box content_r = get_animated_client_rect(tl);
+			struct wlr_box content_r = corner_mask_content_rect(tl);
 			int node_ox = (content_r.x < output->lx) ? (output->lx - content_r.x) : 0;
 			int node_oy = (content_r.y < output->ly) ? (output->ly - content_r.y) : 0;
 			node_ox += (int)tl->content_tree->node.x;
@@ -2004,12 +2010,18 @@ static void push_corner_masks_to_toplevels(output_t *output, bool rebuilt) {
 			continue;
 		}
 
-		struct wlr_box content_r = get_animated_client_rect(tl);
+		if (tl->rounded->corner_mask_dirty)
+			continue;
+
+		struct wlr_box content_r = corner_mask_content_rect(tl);
 
 		struct wlr_fbox src;
 		int dw, dh;
-		if (!compute_src_box(output, &content_r, &src, &dw, &dh))
+		if (!compute_src_box(output, &content_r, &src, &dw, &dh)) {
+			if (tl->rounded->corner_mask_node->node.enabled)
+				wlr_scene_node_set_enabled(&tl->rounded->corner_mask_node->node, false);
 			continue;
+		}
 
 		int node_ox = (content_r.x < output->lx) ? (output->lx - content_r.x) : 0;
 		int node_oy = (content_r.y < output->ly) ? (output->ly - content_r.y) : 0;
