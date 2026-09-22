@@ -2,6 +2,16 @@
 
 _Wayland compositor based on bspwm_
 
+### Screenshots
+
+<img alt="Tiled Layout" src="repository/tiled_layout.png">
+<img alt="Floating window with blur and rounding" src="repository/floating_window_blur_rounding.png">
+<img alt="Master stack layout" src="repository/master_stack_layout.png">
+<img alt="Resized windows with presel" src="repository/resized_windows_with_presel.png">
+<img alt="Scroller layout" src="repository/scroller_layout.png">
+
+_Above screenshots are a laptop running doors with noctalia 5.1.0._
+
 ### Building
 
 Ensure you have the following dependencies installed:
