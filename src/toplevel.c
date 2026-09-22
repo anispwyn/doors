@@ -743,6 +743,7 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 	node_t *n = toplevel->node;
 	output_t *m = mon;
 	desktop_t *d = NULL;
+	bool node_held = false;
 
 	// find the actual desktop this node belongs to by walking up to root
 	if (m && n) {
@@ -797,6 +798,13 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 			n->destroying = true;
 		if (n && n->client)
 			n->client->toplevel = NULL;
+
+		// arrange() can commit the transaction right away, which frees a destroying node that
+		// nothing waits for any more, hold a reference until the view is reported as unmapped
+		if (n) {
+			n->ntxnrefs++;
+			node_held = true;
+		}
 		arrange(m, d, true);
 
 		toplevel->node = NULL;
@@ -819,6 +827,12 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 	}
 
 	transaction_notify_view_unmapped(n);
+
+	if (node_held) {
+		n->ntxnrefs--;
+		if (n->destroying && n->ntxnrefs == 0)
+			free_node(n);
+	}
 }
 
 void toplevel_commit(struct wl_listener *listener, void *data) {
@@ -1071,6 +1085,14 @@ void toplevel_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&toplevel->set_title.link);
 	wl_list_remove(&toplevel->set_app_id.link);
 	wl_list_remove(&toplevel->outputs_update.link);
+
+	// the decoration object can outlive the toplevel, e.g. when its client is destroyed
+	// together with the toplevel: its listeners must not point into the freed toplevel
+	if (toplevel->xdg_decoration) {
+		wl_list_remove(&toplevel->decoration_destroy.link);
+		wl_list_remove(&toplevel->decoration_request_mode.link);
+		toplevel->xdg_decoration = NULL;
+	}
 
 	if (toplevel->output_handler) {
 		wlr_scene_node_destroy(&toplevel->output_handler->node);
