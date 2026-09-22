@@ -224,7 +224,9 @@ static void restore_signals(void) {
 	sigemptyset(&set);
 	sigprocmask(SIG_SETMASK, &set, NULL);
 
-	struct sigaction sa_dfl = {.sa_handler = SIG_DFL};
+	struct sigaction sa_dfl = {
+		.sa_handler = SIG_DFL
+	};
 	sigaction(SIGCHLD, &sa_dfl, NULL);
 	sigaction(SIGPIPE, &sa_dfl, NULL);
 }
@@ -235,7 +237,9 @@ void launcher_init(void) {
 
 	// Commands started by doors are children of the compositor and nothing waits for them.
 	// Ignoring SIGCHLD makes the kernel reap them instead of leaving zombies behind.
-	struct sigaction sa_ign = {.sa_handler = SIG_IGN};
+	struct sigaction sa_ign = {
+		.sa_handler = SIG_IGN
+	};
 	sigaction(SIGCHLD, &sa_ign, NULL);
 	pthread_atfork(NULL, NULL, restore_signals);
 
