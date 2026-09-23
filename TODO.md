@@ -4,6 +4,7 @@
 - Custom animation shaders for windows (e.g. open/close animations)
 - Send to desktop animation?
 - Resize animation still looks buggy
+- When the right toplevel closes in a tiled 2 toplevel layout, the other toplevel briefly jumps to the left for a frame before animating resize correctly
 
 # Effects
 - Effects per window state (e.g. unfocused, focused, ...)
@@ -15,8 +16,6 @@
 # Layout
 - Better tab grouping (see sway or Hyprland for reference)
 - Better scrolling layout handling (see niri for reference)
-- Some toplevels open smaller in height and then take their correct size a frame later
-- Layout isn't rearranged on output scale change
 
 # Misc
 - Rework the docs to be easier to use

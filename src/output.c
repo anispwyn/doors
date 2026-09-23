@@ -742,6 +742,7 @@ void output_update_scale(output_t *output, float scale) {
 	}
 
 	effects_invalidate_mica(output->effects);
+	arrange_layers(output);
 
 	// rearrange all desktop on this output
 	desktop_t *d;

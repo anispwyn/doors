@@ -42,11 +42,11 @@ static void apply_output_head_config(struct wlr_output_configuration_head_v1 *co
 	wlr_output_commit_state(output, &state);
 	wlr_output_state_finish(&state);
 
-	if (out)
-		output_update_scale(out, config_head->state.scale);
-
 	if (config_head->state.x >= 0 && config_head->state.y >= 0)
 		wlr_output_layout_add(server.output_layout, output, config_head->state.x, config_head->state.y);
+
+	if (out)
+		output_update_scale(out, config_head->state.scale);
 }
 
 static void handle_output_manager_apply(struct wl_listener *listener, void *data) {

@@ -421,8 +421,10 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 
 		if (streq("on", *args) || streq("enable", *args) || streq("true", *args)) {
 			oc->hdr_enabled = true;
+			oc->hdr_set = true;
 		} else if (streq("off", *args) || streq("disable", *args) || streq("false", *args)) {
 			oc->hdr_enabled = false;
+			oc->hdr_set = true;
 		} else {
 			send_failure(client_fd, "output hdr: invalid state (on/off)\n");
 			return;

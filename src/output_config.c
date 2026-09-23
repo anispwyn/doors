@@ -80,11 +80,7 @@ void output_set_power(struct wlr_output *wlr_output, uint32_t mode) {
 	struct wlr_output_state state;
 	wlr_output_state_init(&state);
 
-	if (mode == ZWLR_OUTPUT_POWER_V1_MODE_OFF) {
-		wlr_output_state_set_enabled(&state, false);
-	} else {
-		wlr_output_state_set_enabled(&state, true);
-	}
+	wlr_output_state_set_enabled(&state, mode == ZWLR_OUTPUT_POWER_V1_MODE_ON);
 
 	wlr_output_commit_state(wlr_output, &state);
 	wlr_output_state_finish(&state);
@@ -93,6 +89,9 @@ void output_set_power(struct wlr_output *wlr_output, uint32_t mode) {
 void output_config_apply(struct output_config *oc) {
 	if (!oc)
 		return;
+
+	bool apply_hdr = oc->hdr_set;
+	oc->hdr_set = false;
 
 	output_t *output = NULL;
 	struct wlr_output *wlr_output = NULL;
@@ -156,7 +155,6 @@ void output_config_apply(struct output_config *oc) {
 	else
 		wlr_output_layout_add_auto(server.output_layout, wlr_output);
 
-	bool scale_changed = oc->scale > 0;
 	float new_scale = oc->scale > 0 ? round(oc->scale * 120) / 120 : 1.0f;
 
 	if (oc->scale > 0)
@@ -190,9 +188,14 @@ void output_config_apply(struct output_config *oc) {
 		wlr_output_state_set_subpixel(&state, subpixel);
 	}
 
-	if (oc->adaptive_sync != OUTPUT_CONFIG_ADAPTIVE_SYNC_AUTO)
-		wlr_output_state_set_adaptive_sync_enabled(&state,
-			oc->adaptive_sync == OUTPUT_CONFIG_ADAPTIVE_SYNC_ENABLED);
+	if (oc->adaptive_sync != OUTPUT_CONFIG_ADAPTIVE_SYNC_AUTO) {
+		if (!wlr_output->adaptive_sync_supported) {
+			wlr_log(WLR_ERROR, "Cannot set adaptive_sync on output %s: output does not support VRR", oc->name);
+		} else {
+			wlr_output_state_set_adaptive_sync_enabled(&state,
+				oc->adaptive_sync == OUTPUT_CONFIG_ADAPTIVE_SYNC_ENABLED);
+		}
+	}
 
 	if (oc->render_bit_depth != OUTPUT_CONFIG_RENDER_BIT_DEPTH_AUTO) {
 		uint32_t render_format = DRM_FORMAT_XRGB8888;
@@ -201,29 +204,43 @@ void output_config_apply(struct output_config *oc) {
 		wlr_output_state_set_render_format(&state, render_format);
 	}
 
-	// HDR setup
-	if (oc->hdr_enabled) {
-		bool has_color_profile = oc->color_transform != NULL;
-		if (has_color_profile) {
-			wlr_log(WLR_ERROR, "Cannot enable HDR on output %s: output has a color profile set", oc->name);
-		} else if (output && !output_supports_hdr(output, NULL)) {
-			wlr_log(WLR_ERROR, "Cannot enable HDR on output %s: output does not support HDR", oc->name);
-		} else {
-			const struct wlr_output_image_description image_desc = {
-				.primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020,
-				.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ,
-			};
-			wlr_output_state_set_image_description(&state, &image_desc);
-		}
-	} else if (!oc->hdr_enabled) {
-		wlr_output_state_set_image_description(&state, NULL);
-	}
-
-	wlr_output_commit_state(wlr_output, &state);
+	if (!wlr_output_commit_state(wlr_output, &state))
+		wlr_log(WLR_ERROR, "output_config_apply: failed to commit state for %s", oc->name);
 	wlr_output_state_finish(&state);
 
-	if (scale_changed && output)
+	if (oc->scale > 0 && output)
 		output_update_scale(output, new_scale);
+
+	if (apply_hdr) {
+		struct wlr_output_state hdr_state;
+		wlr_output_state_init(&hdr_state);
+
+		bool commit_hdr = false;
+		if (oc->hdr_enabled) {
+			bool has_color_profile = oc->color_transform != NULL;
+			if (has_color_profile) {
+				wlr_log(WLR_ERROR, "Cannot enable HDR on output %s: output has a color profile set", oc->name);
+			} else if (output && !output_supports_hdr(output, NULL)) {
+				wlr_log(WLR_ERROR, "Cannot enable HDR on output %s: output does not support HDR", oc->name);
+			} else {
+				const struct wlr_output_image_description image_desc = {
+					.primaries = WLR_COLOR_NAMED_PRIMARIES_BT2020,
+					.transfer_function = WLR_COLOR_TRANSFER_FUNCTION_ST2084_PQ,
+				};
+				wlr_output_state_set_image_description(&hdr_state, &image_desc);
+				commit_hdr = true;
+			}
+		} else if (wlr_output->image_description != NULL) {
+			wlr_output_state_set_image_description(&hdr_state, NULL);
+			commit_hdr = true;
+		}
+
+		if (commit_hdr) {
+			if (!wlr_output_commit_state(wlr_output, &hdr_state))
+				wlr_log(WLR_ERROR, "output_config_apply: failed to commit HDR image-description for %s", oc->name);
+		}
+		wlr_output_state_finish(&hdr_state);
+	}
 
 	if (oc->dpms_state == OUTPUT_CONFIG_DPMS_OFF)
 		output_set_power(wlr_output, ZWLR_OUTPUT_POWER_V1_MODE_OFF);
