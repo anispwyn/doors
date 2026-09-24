@@ -171,9 +171,14 @@ static void apply_leaf_positions(desktop_t *d) {
 				effects_dirty_corner_masks(n->output);
 		}
 
-		if (n->client->toplevel)
-			wlr_xdg_toplevel_set_size(n->client->toplevel->xdg_toplevel, r.width, r.height);
-		else if (n->client->xwayland_view)
+		if (n->client->toplevel) {
+			toplevel_t *tl = n->client->toplevel;
+			if (r.width != (int)tl->last_requested.width || r.height != (int)tl->last_requested.height) {
+				wlr_xdg_toplevel_set_size(tl->xdg_toplevel, r.width, r.height);
+				tl->last_requested.width = r.width;
+				tl->last_requested.height = r.height;
+			}
+		} else if (n->client->xwayland_view)
 			wlr_xwayland_surface_configure(n->client->xwayland_view->xwayland_surface, r.x, r.y, r.width,
 				r.height);
 
@@ -458,7 +463,12 @@ static void process_cursor_resize(void) {
 		if (toplevel->node->output)
 			effects_dirty_corner_masks(toplevel->node->output);
 	}
-	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, new_width, new_height);
+	if ((int)toplevel->last_requested.width != new_width ||
+			(int)toplevel->last_requested.height != new_height) {
+		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, new_width, new_height);
+		toplevel->last_requested.width = new_width;
+		toplevel->last_requested.height = new_height;
+	}
 
 	// update borders
 	unsigned int bw = effective_border_width(toplevel->node->desktop);

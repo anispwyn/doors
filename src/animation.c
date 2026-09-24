@@ -686,13 +686,18 @@ static void update_resize_entry(animation_entry_t *entry) {
 			int geo_w = (int)entry->toplevel->geometry.width;
 			int geo_h = (int)entry->toplevel->geometry.height;
 
+			// anchor content to whichever edge is fixed; center when both move
 			int cx, cy;
 			if (entry->from.x == entry->to.x && from_right != to_right)
+				cx = 0;
+			else if (from_right == to_right && entry->from.x != entry->to.x)
 				cx = width - geo_w;
 			else
 				cx = (width - geo_w) / 2;
 
 			if (entry->from.y == entry->to.y && from_bottom != to_bottom)
+				cy = 0;
+			else if (from_bottom == to_bottom && entry->from.y != entry->to.y)
 				cy = height - geo_h;
 			else
 				cy = (height - geo_h) / 2;

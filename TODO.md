@@ -3,8 +3,7 @@
 - Ensure animations and blur work together without visual artifacts
 - Custom animation shaders for windows (e.g. open/close animations)
 - Send to desktop animation?
-- Resize animation still looks buggy
-- When the right toplevel closes in a tiled 2 toplevel layout, the other toplevel briefly jumps to the left for a frame before animating resize correctly
+- Tiled resize animation looks strange with toplevels with blur or rounding
 
 # Effects
 - Effects per window state (e.g. unfocused, focused, ...)
@@ -21,7 +20,6 @@
 - Rework the docs to be easier to use
 - Improve the README (include video, images, better info)
 - Looks like there is a 1px gap between toplevels and borders under certain conditions, likely a rounding error somewhere (observed on zed editor and ghostty on a two column layout with their toplevel on the right)
-- Interactive resize is not smooth, especially in tiled layout
 
 # Potential
 - Per desktop rules (e.g. floating, master_stack)

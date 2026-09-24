@@ -887,10 +887,16 @@ void toplevel_commit(struct wl_listener *listener, void *data) {
 
 				if (c->state == STATE_FLOATING) {
 					if (c->floating_rectangle.width > 0) {
+						int old_w = c->floating_rectangle.width;
+						int old_h = c->floating_rectangle.height;
 						c->floating_rectangle.width = toplevel->geometry.width;
 						c->floating_rectangle.height = toplevel->geometry.height;
+						c->floating_rectangle.x += (old_w - toplevel->geometry.width) / 2;
+						c->floating_rectangle.y += (old_h - toplevel->geometry.height) / 2;
 						wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, toplevel->geometry.width,
 							toplevel->geometry.height);
+						toplevel->last_requested.width = toplevel->geometry.width;
+						toplevel->last_requested.height = toplevel->geometry.height;
 						transaction_commit_dirty_client();
 					}
 				} else if (IS_TILED(c)) {

@@ -190,7 +190,8 @@ void output_config_apply(struct output_config *oc) {
 
 	if (oc->adaptive_sync != OUTPUT_CONFIG_ADAPTIVE_SYNC_AUTO) {
 		if (!wlr_output->adaptive_sync_supported) {
-			wlr_log(WLR_ERROR, "Cannot set adaptive_sync on output %s: output does not support VRR", oc->name);
+			wlr_log(WLR_ERROR, "Cannot set adaptive_sync on output %s: output does not support VRR",
+				oc->name);
 		} else {
 			wlr_output_state_set_adaptive_sync_enabled(&state,
 				oc->adaptive_sync == OUTPUT_CONFIG_ADAPTIVE_SYNC_ENABLED);
@@ -237,7 +238,8 @@ void output_config_apply(struct output_config *oc) {
 
 		if (commit_hdr) {
 			if (!wlr_output_commit_state(wlr_output, &hdr_state))
-				wlr_log(WLR_ERROR, "output_config_apply: failed to commit HDR image-description for %s", oc->name);
+				wlr_log(WLR_ERROR, "output_config_apply: failed to commit HDR image-description for %s",
+					oc->name);
 		}
 		wlr_output_state_finish(&hdr_state);
 	}
