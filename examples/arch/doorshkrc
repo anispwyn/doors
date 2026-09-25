@@ -26,6 +26,10 @@ super + shift + space
 super + m
 	doorsctl desktop --layout monocle
 
+# toggle floating layout (new windows spawn floating)
+super + shift + v
+	doorsctl desktop --layout floating
+
 # window navigation (using brace expansion)
 super + {h,j,k,l}
 	doorsctl focus {west,south,north,east}

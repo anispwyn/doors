@@ -1,5 +1,6 @@
 #include "config.h"
 #include "fallthrough.h"
+#include "floating.h"
 #include "global_shortcuts.h"
 #include "idle_power.h"
 #include "input.h"
@@ -348,80 +349,33 @@ void toggle_floating(void) {
 	if (n->client == NULL)
 		return;
 
-	struct wlr_scene_tree *scene_tree = client_get_scene_tree(n->client);
-	if (!scene_tree) {
-		wlr_log(WLR_ERROR, "Cannot toggle floating: no scene tree");
-		return;
-	}
-
 	wlr_log(WLR_INFO, "toggle_floating: node=%u state=%d hidden=%d parent=%u root=%u focus=%u", n->id,
 		n->client->state, n->hidden, n->parent ? n->parent->id : 0,
 		mon->desk->root ? mon->desk->root->id : 0, mon->desk->focus ? mon->desk->focus->id : 0);
 
-	if (n->client->state == STATE_FLOATING) {
+	switch (n->client->state) {
+	case STATE_FLOATING:
 		if (n->parent != NULL)
 			wlr_log(WLR_ERROR, "toggle_floating: floating node %u has non-NULL parent %u, unexpected state",
 				n->id, n->parent->id);
 
-		n->hidden = false;
-		wlr_scene_node_reparent(&scene_tree->node, server.tile_tree);
-
-		n->client->last_state = n->client->state;
-		n->client->state = STATE_TILED;
-
-		node_t *ref = mon->desk->focus != n ? mon->desk->focus : NULL;
-		insert_node(mon->desk, n, ref);
-
-		arrange(mon, mon->desk, true);
-
-		ipc_put_status(SUB_MASK_NODE_STATE, "node_state[%s,%s,%u,%c]\n",
-			n->client->app_id[0] ? n->client->app_id : "?", n->client->title[0] ? n->client->title : "?",
-			n->id,
-			n->client->state == STATE_TILED ? 'T' : n->client->state == STATE_FLOATING ? 'F' :
-			n->client->state == STATE_FULLSCREEN ? 'U' : '?');
+		tile_node(mon, mon->desk, n);
 
 		wlr_log(WLR_INFO, "toggle_floating: now tiled, node=%u parent=%u root=%u", n->id,
 			n->parent ? n->parent->id : 0, mon->desk->root ? mon->desk->root->id : 0);
-	} else if (n->client->state == STATE_TILED) {
+		break;
+	case STATE_TILED:
 		if (n->parent == NULL && mon->desk->root != n)
 			wlr_log(WLR_ERROR,
 				"toggle_floating: tiled node %u has no parent and is not root, already detached", n->id);
 
-		if (n->client->toplevel) {
-			toplevel_t *tl = n->client->toplevel;
-			int off_x = (n->client->tiled_rectangle.width - tl->geometry.width) / 2;
-			int off_y = (n->client->tiled_rectangle.height - tl->geometry.height) / 2;
-			n->client->floating_rectangle = (struct wlr_box){
-				.x = n->client->tiled_rectangle.x + (off_x > 0 ? off_x : 0),
-				.y = n->client->tiled_rectangle.y + (off_y > 0 ? off_y : 0),
-				.width = tl->geometry.width,
-				.height = tl->geometry.height
-			};
-		} else
-			n->client->floating_rectangle = n->client->tiled_rectangle;
+		float_node(mon, mon->desk, n, NULL);
 
-		remove_node(mon->desk, n);
-		n->hidden = true;
-
-		struct wlr_scene_tree *st = client_get_scene_tree(n->client);
-		if (st)
-			wlr_scene_node_set_position(&st->node, n->client->floating_rectangle.x,
-				n->client->floating_rectangle.y);
-
-		wlr_scene_node_reparent(&scene_tree->node, server.float_tree);
-
-		// restore focus
-		focus_node(mon, mon->desk, n);
-
-		set_state(mon, mon->desk, n, STATE_FLOATING);
-
-		if (n->client->toplevel)
-			toplevel_center_and_clip_surface(n->client->toplevel);
-
-		node_set_dirty(n);
-		transaction_commit_dirty();
 		wlr_log(WLR_INFO, "toggle_floating: now floating, node=%u root=%u focus=%u", n->id,
 			mon->desk->root ? mon->desk->root->id : 0, mon->desk->focus ? mon->desk->focus->id : 0);
+		break;
+	default:
+		break;
 	}
 }
 
@@ -621,13 +575,21 @@ void send_to_desktop(int desktop_index) {
 		return;
 	}
 
-	insert_node(target, n, find_public(target));
+	// floating toplevels live outside the tree
+	if (IS_FLOATING(n->client)) {
+		n->desktop = target;
+	} else {
+		insert_node(target, n, find_public(target));
+	}
 	target->focus = n;
 
 	arrange(mon, src_desk, true);
 	arrange(target_mon, target, false);
 
 	n->output = target_mon;
+
+	// a floating toplevel may have been left behind on the monitor it came from
+	float_node_clamp(target_mon, target, n);
 
 	wlr_log(WLR_INFO, "Sent window to desktop: %s (n->output=%p target_mon=%p)", target->name,
 		(void *)n->output, (void *)target_mon);
@@ -685,7 +647,11 @@ void send_to_desktop_by_name(const char *name) {
 	}
 
 	// add to target desktop
-	insert_node(target, n, find_public(target));
+	if (IS_FLOATING(n->client)) {
+		n->desktop = target;
+	} else {
+		insert_node(target, n, find_public(target));
+	}
 	target->focus = n;
 
 	// ensure the moved node respects initial_polarity
@@ -747,11 +713,10 @@ void send_to_prev_desktop(void) {
 	}
 }
 
-void toggle_monocle(void) {
-	if (mon == NULL || mon->desk == NULL)
+// toggles monocle on a specific desktop. `focus_hint` is the toplevel that triggered the toggle
+void monocle_toggle(output_t *m, desktop_t *d, node_t *focus_hint) {
+	if (m == NULL || d == NULL)
 		return;
-
-	desktop_t *d = mon->desk;
 
 	if (d->layout == LAYOUT_MONOCLE) {
 		layout_set(d, d->user_layout);
@@ -777,12 +742,23 @@ void toggle_monocle(void) {
 		}
 	}
 
-	arrange(mon, d, true);
+	arrange(m, d, true);
 	ipc_put_status(SUB_MASK_DESKTOP_LAYOUT, "desktop_layout[%s,%c]\n", d->name,
 		layout_to_char(d->layout));
 
-	if (d->focus != NULL)
-		focus_node(mon, d, d->focus);
+	// monocle only shows the focused window, make sure it is the one asking for it
+	if (focus_hint != NULL && d->layout == LAYOUT_MONOCLE && node_focusable(focus_hint)) {
+		d->focus = focus_hint;
+		focus_node(m, d, focus_hint);
+	} else if (d->focus != NULL)
+		focus_node(m, d, d->focus);
+}
+
+void toggle_monocle(void) {
+	if (mon == NULL || mon->desk == NULL)
+		return;
+
+	monocle_toggle(mon, mon->desk, NULL);
 }
 
 void set_tiled_layout(void) {
@@ -829,6 +805,35 @@ void toggle_master_stack(void) {
 				wlr_xdg_toplevel_set_maximized(n->client->toplevel->xdg_toplevel, false);
 			}
 		}
+	}
+
+	arrange(mon, d, true);
+	ipc_put_status(SUB_MASK_DESKTOP_LAYOUT, "desktop_layout[%s,%c]\n", d->name,
+		layout_to_char(d->layout));
+
+	if (d->focus != NULL)
+		focus_node(mon, d, d->focus);
+}
+
+void toggle_floating_layout(void) {
+	if (mon == NULL || mon->desk == NULL)
+		return;
+
+	desktop_t *d = mon->desk;
+
+	// bring toplevels back into the tree
+	if (d->layout == LAYOUT_FLOATING) {
+		layout_set(d, d->user_layout);
+
+		node_t **toplevels = NULL;
+		int count = desktop_toplevels(d, &toplevels);
+		for (int i = 0; i < count; i++) {
+			if (toplevels[i]->client != NULL && IS_FLOATING(toplevels[i]->client))
+				tile_node(mon, d, toplevels[i]);
+		}
+		free(toplevels);
+	} else {
+		layout_toggle(d, LAYOUT_FLOATING);
 	}
 
 	arrange(mon, d, true);

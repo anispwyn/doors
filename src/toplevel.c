@@ -2,9 +2,11 @@
 #include "copy_capture.h"
 #include "cursor.h"
 #include "effects.h"
+#include "floating.h"
 #include "input_method.h"
 #include "ipc.h"
 #include "keyboard.h"
+#include "layout.h"
 #include "output.h"
 #include "popup.h"
 #include "render_unfocused.h"
@@ -95,6 +97,7 @@ static void handle_foreign_fullscreen_request(struct wl_listener *listener, void
 static void handle_foreign_close_request(struct wl_listener *listener, void *data);
 static void handle_foreign_destroy(struct wl_listener *listener, void *data);
 static void handle_outputs_update(struct wl_listener *listener, void *data);
+static void toplevel_handle_maximize(toplevel_t *toplevel, bool requested_maximized);
 
 static bool toplevel_should_use_server_decorations(toplevel_t *tl) {
 	if (!tl || !tl->node)
@@ -314,7 +317,7 @@ void toplevel_center_and_clip_surface(toplevel_t *toplevel) {
 	if ((tiled || floating) && toplevel->border_tree) {
 		unsigned int bw = effective_border_width(toplevel->node->desktop);
 		if (bw > 0) {
-			if (tiled && (x > 0 || y > 0)) {
+			if ((tiled || floating) && (x > 0 || y > 0)) {
 				int border_w = (int)toplevel->geometry.width < container_rect->width ?
 					(int)toplevel->geometry.width : container_rect->width;
 				int border_h = (int)toplevel->geometry.height < container_rect->height ?
@@ -618,6 +621,9 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 		n->client->state = STATE_PSEUDO_TILED;
 	} else if (settings.auto_float_dialogs && toplevel->is_dialog) {
 		toplevel_set_floating(toplevel, n, target_output);
+	} else if (!(rule && rule->has & RULE_TYPE_STATE)) {
+		// let the layout of the target desktop decide how new toplevels spawn
+		layout_init_client(target_output, target_desktop, n->client);
 	}
 
 	// notify wlr_foreign_toplevel clients about the output association
@@ -632,11 +638,15 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 	if (n->client->state == STATE_FLOATING)
 		node_set_dirty(n);
 
-	// insert node into tree
-	node_t *focus = target_desktop->focus;
-	insert_node(target_desktop, n, focus);
+	// insert node into tree, floating toplevels are kept out of it
+	if (IS_FLOATING(n->client)) {
+		n->desktop = target_desktop;
+	} else {
+		node_t *focus = target_desktop->focus;
+		insert_node(target_desktop, n, focus);
+	}
 
-	// in scroller layout, also track the window in the scroller state.
+	// in scroller layout, also track the toplevel in the scroller state.
 	if (target_desktop->layout == LAYOUT_SCROLLER && target_desktop->scroller_state &&
 		IS_TILED(n->client))
 		scroller_add_tile(target_desktop->scroller_state, n->client, should_focus);
@@ -658,13 +668,17 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 	if (should_focus && target_output)
 		activate_node(target_output, target_desktop, n);
 
+	bool rule_has_state = rule && (rule->has & RULE_TYPE_STATE);
 	if (rule && rule->state == STATE_FULLSCREEN) {
 		enter_fullscreen(target_output, target_desktop, n);
-	} else if ((!rule || !(rule->has & RULE_TYPE_STATE)) &&
-			toplevel->xdg_toplevel->requested.fullscreen) {
+	} else if (!rule_has_state && toplevel->xdg_toplevel->requested.fullscreen) {
 		// client requested fullscreen before map
 		enter_fullscreen(target_output, target_desktop, n);
 	}
+
+	// a client can ask to be maximized before the window is mapped
+	if (!rule_has_state && toplevel->xdg_toplevel->requested.maximized)
+		toplevel_handle_maximize(toplevel, true);
 
 	toplevel->wants_fade = true;
 	arrange(target_output, target_desktop, true);
@@ -817,10 +831,14 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 				if (d->focus != NULL)
 					focus_node(d->output ? d->output : m, d, d->focus);
 			}
-		} else if (d->focus != NULL && d->focus->client != NULL) {
-			focus_node(d->output ? d->output : m, d, d->focus);
-		} else if (d->root != NULL) {
-			d->focus = first_extrema(d->root);
+		} else {
+			// the closed toplevel was the last one standing (floating layouts never put
+			// anything in the tree), hand the focus to the topmost toplevel left
+			if (d->focus == n || !node_focusable(d->focus)) {
+				node_t *next = desktop_fallback_focus(d, n);
+				d->focus = next;
+			}
+
 			if (d->focus != NULL)
 				focus_node(d->output ? d->output : m, d, d->focus);
 		}
@@ -1136,6 +1154,28 @@ void toplevel_request_resize(struct wl_listener *listener, void *data) {
 		wlr_xdg_surface_schedule_configure(toplevel->xdg_toplevel->base);
 }
 
+// a client asking to be maximized expects its toplevel to fill the desktop, so a floating
+// toplevel joins the tree first and the desktop switches to monocle
+static void toplevel_handle_maximize(toplevel_t *toplevel, bool requested_maximized) {
+	node_t *n = toplevel->node;
+	if (n == NULL || n->client == NULL)
+		return;
+
+	output_t *m = n->output;
+	desktop_t *d = m != NULL ? m->desk : (mon != NULL ? mon->desk : NULL);
+	if (d == NULL)
+		return;
+
+	toplevel->client_maximized = requested_maximized;
+
+	if (requested_maximized && IS_FLOATING(n->client)) {
+		focus_node(m, d, n);
+		tile_node(m, d, n);
+	}
+
+	monocle_toggle(m, d, n);
+}
+
 void toplevel_request_maximize(struct wl_listener *listener, void *data) {
 	(void)data;
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, request_maximize);
@@ -1151,8 +1191,7 @@ void toplevel_request_maximize(struct wl_listener *listener, void *data) {
 	if (requested_maximized == toplevel->client_maximized)
 		return;
 
-	toplevel->client_maximized = requested_maximized;
-	toggle_monocle();
+	toplevel_handle_maximize(toplevel, requested_maximized);
 }
 
 void toplevel_request_fullscreen(struct wl_listener *listener, void *data) {

@@ -34,6 +34,10 @@ alt + t
 alt + shift + m
 	doorsctl desktop --layout master_stack
 
+# toggle floating layout (new windows spawn floating)
+alt + shift + v
+	doorsctl desktop --layout floating
+
 # master-stack: increment/decrement master count
 alt + ctrl + {i,o}
 	doorsctl master_stack {inc,dec}

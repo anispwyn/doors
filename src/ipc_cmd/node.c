@@ -1,5 +1,6 @@
 #include "animation.h"
 #include "effects.h"
+#include "floating.h"
 #include "ipc.h"
 #include "ipc_cmd.h"
 #include "ipc_helpers.h"
@@ -395,16 +396,14 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 			return;
 		}
 
-		n->client->state = STATE_FLOATING;
-		n->client->floating_rectangle.x += dx;
-		n->client->floating_rectangle.y += dy;
+		if (IS_FLOATING(n->client)) {
+			struct wlr_box moved = n->client->floating_rectangle;
+			moved.x += dx;
+			moved.y += dy;
+			float_node_set_rect(n, moved);
+		} else
+			float_node(m, m->desk, n, NULL);
 
-		struct wlr_scene_tree *st = client_get_scene_tree(n->client);
-		if (st)
-			wlr_scene_node_set_position(&st->node, n->client->floating_rectangle.x,
-				n->client->floating_rectangle.y);
-
-		transaction_commit_dirty();
 		send_success(client_fd, "moved\n");
 	} else if (streq("-z", *args) || streq("--resize", *args)) {
 		if (num < 4) {
@@ -438,71 +437,63 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		}
 		args++;
 		num--;
-
 		if (sscanf(*args, "%d", &dy) != 1) {
 			send_failure(client_fd, "node -z: invalid dy\n");
 			return;
 		}
 
-		n->client->state = STATE_FLOATING;
+		bool was_floating = IS_FLOATING(n->client);
+		struct wlr_box resized = node_current_rect(n);
 
 		if (strcmp(handle, "northwest") == 0 || strcmp(handle, "nw") == 0 || strcmp(handle,
 				"left") == 0) {
-			n->client->floating_rectangle.x += dx;
-			n->client->floating_rectangle.y += dy;
-			n->client->floating_rectangle.width -= dx;
-			n->client->floating_rectangle.height -= dy;
+			resized.x += dx;
+			resized.y += dy;
+			resized.width -= dx;
+			resized.height -= dy;
 		} else if (strcmp(handle, "north") == 0 || strcmp(handle, "n") == 0) {
-			n->client->floating_rectangle.y += dy;
-			n->client->floating_rectangle.height -= dy;
+			resized.y += dy;
+			resized.height -= dy;
 		} else if (strcmp(handle, "northeast") == 0 || strcmp(handle, "ne") == 0) {
-			n->client->floating_rectangle.y += dy;
-			n->client->floating_rectangle.width += dx;
-			n->client->floating_rectangle.height -= dy;
+			resized.y += dy;
+			resized.width += dx;
+			resized.height -= dy;
 		} else if (strcmp(handle, "east") == 0 || strcmp(handle, "e") == 0 || strcmp(handle,
 				"right") == 0) {
-			n->client->floating_rectangle.width += dx;
+			resized.width += dx;
 		} else if (strcmp(handle, "southeast") == 0 || strcmp(handle, "se") == 0) {
-			n->client->floating_rectangle.width += dx;
-			n->client->floating_rectangle.height += dy;
+			resized.width += dx;
+			resized.height += dy;
 		} else if (strcmp(handle, "south") == 0 || strcmp(handle, "s") == 0) {
-			n->client->floating_rectangle.height += dy;
+			resized.height += dy;
 		} else if (strcmp(handle, "southwest") == 0 || strcmp(handle, "sw") == 0) {
-			n->client->floating_rectangle.x += dx;
-			n->client->floating_rectangle.width -= dx;
-			n->client->floating_rectangle.height += dy;
+			resized.x += dx;
+			resized.width -= dx;
+			resized.height += dy;
 		} else if (strcmp(handle, "west") == 0 || strcmp(handle, "w") == 0) {
-			n->client->floating_rectangle.x += dx;
-			n->client->floating_rectangle.width -= dx;
+			resized.x += dx;
+			resized.width -= dx;
 		} else if (strcmp(handle, "center") == 0 || strcmp(handle, "c") == 0) {
-			n->client->floating_rectangle.x += dx;
-			n->client->floating_rectangle.y += dy;
-			n->client->floating_rectangle.width += dx;
-			n->client->floating_rectangle.height += dy;
+			resized.x += dx;
+			resized.y += dy;
+			resized.width += dx;
+			resized.height += dy;
 		} else {
 			send_failure(client_fd, "node -z: invalid resize handle\n");
 			return;
 		}
 
-		if (n->client->floating_rectangle.width < 50)
-			n->client->floating_rectangle.width = 50;
-		if (n->client->floating_rectangle.height < 50)
-			n->client->floating_rectangle.height = 50;
+		if (resized.width < 50)
+			resized.width = 50;
+		if (resized.height < 50)
+			resized.height = 50;
 
-		struct wlr_scene_tree *st = client_get_scene_tree(n->client);
-		if (st) {
-			wlr_scene_node_set_position(&st->node, n->client->floating_rectangle.x,
-				n->client->floating_rectangle.y);
-			if (n->client->toplevel)
-				wlr_xdg_toplevel_set_size(n->client->toplevel->xdg_toplevel, n->client->floating_rectangle.width,
-					n->client->floating_rectangle.height);
-			else if (n->client->xwayland_view)
-				wlr_xwayland_surface_configure(n->client->xwayland_view->xwayland_surface,
-					n->client->floating_rectangle.x, n->client->floating_rectangle.y,
-					n->client->floating_rectangle.width, n->client->floating_rectangle.height);
-		}
+		// the transaction sends the configure and brings the border along
+		if (was_floating)
+			float_node_set_rect(n, resized);
+		else
+			float_node(m, m->desk, n, &resized);
 
-		transaction_commit_dirty();
 		send_success(client_fd, "resized\n");
 	} else if (streq("-a", *args) || streq("--activate", *args)) {
 		output_t *m = server.focused_output;

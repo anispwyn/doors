@@ -122,6 +122,7 @@ static const struct {
 	{"fullscreen", toggle_fullscreen},
 	{"pseudo_tiled", toggle_pseudo_tiled},
 	{"monocle", toggle_monocle},
+	{"floating_layout", toggle_floating_layout},
 	{"block_out_from_screenshare", toggle_block_out_from_screenshare},
 };
 

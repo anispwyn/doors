@@ -1,3 +1,4 @@
+#include "floating.h"
 #include "layout.h"
 #include "master_stack.h"
 #include "scroller.h"
@@ -167,6 +168,7 @@ static const layout_impl_t tiled_impl = {
 	.on_focus = NULL,
 	.focus = tiled_focus,
 	.swap = tiled_swap,
+	.enter = NULL,
 	.init_client = NULL,
 	.collect = tiled_collect,
 	.single_visible = false,
@@ -179,6 +181,7 @@ static const layout_impl_t monocle_impl = {
 	.on_focus = monocle_on_focus,
 	.focus = tiled_focus,
 	.swap = NULL,
+	.enter = NULL,
 	.init_client = NULL,
 	.collect = tiled_collect,
 	.single_visible = true,
@@ -191,6 +194,7 @@ static const layout_impl_t scroller_impl = {
 	.on_focus = scroller_on_focus,
 	.focus = scroller_focus,
 	.swap = scroller_swap,
+	.enter = NULL,
 	.init_client = NULL,
 	.collect = scroller_collect_fn,
 	.single_visible = false,
@@ -203,8 +207,22 @@ static const layout_impl_t master_stack_impl = {
 	.on_focus = NULL,
 	.focus = master_stack_focus,
 	.swap = master_stack_swap,
+	.enter = NULL,
 	.init_client = NULL,
 	.collect = master_stack_collect,
+	.single_visible = false,
+	.has_directional_nav = true,
+};
+
+static const layout_impl_t floating_impl = {
+	.name = "floating",
+	.arrange = floating_arrange,
+	.on_focus = floating_on_focus,
+	.focus = floating_focus,
+	.swap = NULL,
+	.enter = floating_enter,
+	.init_client = floating_init_client,
+	.collect = floating_collect,
 	.single_visible = false,
 	.has_directional_nav = true,
 };
@@ -214,12 +232,24 @@ static const layout_impl_t *registry[] = {
 	[LAYOUT_MONOCLE] = &monocle_impl,
 	[LAYOUT_SCROLLER] = &scroller_impl,
 	[LAYOUT_MASTER_STACK] = &master_stack_impl,
+	[LAYOUT_FLOATING] = &floating_impl,
 };
 
 const layout_impl_t *layout_get_impl(layout_t layout) {
 	if ((size_t)layout >= sizeof(registry) / sizeof(registry[0]))
 		return NULL;
 	return registry[layout];
+}
+
+bool layout_init_client(output_t *m, desktop_t *d, client_t *c) {
+	if (!d || !c)
+		return false;
+
+	const layout_impl_t *impl = layout_get_impl(d->layout);
+	if (impl && impl->init_client)
+		return impl->init_client(m, d, c);
+
+	return false;
 }
 
 void layout_set(desktop_t *d, layout_t new_layout) {
@@ -232,7 +262,16 @@ void layout_set(desktop_t *d, layout_t new_layout) {
 		d->scroller_state = NULL;
 	}
 
+	layout_t old_layout = d->layout;
 	d->layout = new_layout;
+
+	// let the incoming layout adopt the toplevels already on the desktop
+	if (old_layout != new_layout) {
+		output_t *m = d->output ? d->output : mon;
+		const layout_impl_t *impl = layout_get_impl(new_layout);
+		if (m != NULL && impl != NULL && impl->enter != NULL)
+			impl->enter(m, d);
+	}
 }
 
 void layout_toggle(desktop_t *d, layout_t target) {

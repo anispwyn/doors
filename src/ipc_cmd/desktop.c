@@ -132,6 +132,8 @@ void ipc_cmd_desktop(char **args, int num, int client_fd) {
 			layout = LAYOUT_SCROLLER;
 		} else if (streq("master_stack", *args)) {
 			layout = LAYOUT_MASTER_STACK;
+		} else if (streq("floating", *args)) {
+			layout = LAYOUT_FLOATING;
 		} else {
 			send_failure(client_fd, "desktop -l: unknown layout\n");
 			return;

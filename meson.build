@@ -110,6 +110,7 @@ executable(
 		'src' / 'effects.c',
 		'src' / 'effects_gles2.c',
 		'src' / 'effects_vk.c',
+		'src' / 'floating.c',
 		'src' / 'foreign_capture.c',
 		'src' / 'gesture.c',
 		'src' / 'global_shortcuts.c',

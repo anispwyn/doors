@@ -543,11 +543,24 @@ doorsctl desktop --layout tiled --all  # Set tiled layout on every desktop
 doorsctl desktop --layout monocle      # Toggle monocle layout on desktop
 doorsctl desktop --layout scroller     # Toggle scroller layout on desktop
 doorsctl desktop --layout master_stack # Toggle master-stack layout on desktop
+doorsctl desktop --layout floating     # Toggle floating layout on desktop
 doorsctl desktop --rename <newname>    # Rename desktop
 doorsctl desktop --swap <name>         # Swap contents with another desktop on same monitor
 doorsctl desktop --remove              # Remove current desktop (fails if only desktop)
 doorsctl desktop --bubble up|prev|down|next  # Reorder desktop in list
 doorsctl desktop --to-monitor <name>   # Move desktop to another monitor
+```
+
+#### Layouts
+
+Each desktop has its own layout. Switching a desktop to a layout adopts the windows it already has, and the layout decides where new windows spawn.
+
+```
+tiled          Binary space partitioning tree
+monocle        One window at a time, the focused one fills the desktop
+scroller       Horizontal columns that scroll through their windows
+master_stack   A master area and a stack area
+floating       New windows spawn floating in a cascade, and windows you tile by hand fill the desktop
 ```
 
 #### Focus Commands
@@ -586,6 +599,7 @@ doorsctl toggle fullscreen              # Toggle focused window fullscreen
 doorsctl toggle pseudo_tiled            # Toggle focused window pseudo-tiled
 doorsctl toggle monocle                 # Toggle monocle layout on desktop
 doorsctl toggle master_stack            # Toggle master-stack layout on desktop
+doorsctl toggle floating_layout         # Toggle floating layout on desktop
 ```
 
 #### Scratchpad Commands

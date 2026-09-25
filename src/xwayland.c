@@ -4,6 +4,7 @@
 #include "input_method.h"
 #include "ipc.h"
 #include "launcher.h"
+#include "layout.h"
 #include "once.h"
 #include "output.h"
 #include "render_unfocused.h"
@@ -609,6 +610,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		wlr_foreign_toplevel_handle_v1_set_app_id(xwayland_view->foreign_toplevel, app_id);
 
 	bool rule_forces_float = rule && rule->has & RULE_TYPE_STATE && rule->state == STATE_FLOATING;
+	bool layout_floated = false;
 	if (wants_float || rule_forces_float) {
 		wlr_scene_node_reparent(&xwayland_view->scene_tree->node, server.float_tree);
 		client->floating_rectangle.x = xsurface->x;
@@ -624,6 +626,13 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		node->hidden = true;
 		client->flags.shown = true;
 		wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, true);
+	} else if (!(rule && rule->has & RULE_TYPE_STATE) && layout_init_client(target_monitor,
+			target_desktop, client)) {
+		layout_floated = true;
+
+		// tell the client about the size and position the layout picked
+		struct wlr_box *rect = &client->floating_rectangle;
+		xwayland_view_configure(xwayland_view, rect->x, rect->y, rect->width, rect->height);
 	} else {
 		if (client->state != STATE_PSEUDO_TILED)
 			client->state = STATE_TILED;
@@ -640,7 +649,12 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 	bool target_desktop_is_focused = (target_desktop == target_monitor->desk);
 
-	insert_node(target_desktop, node, target_desktop->focus);
+	// floating toplevels are kept out of the tree
+	if (IS_FLOATING(client)) {
+		node->desktop = target_desktop;
+	} else {
+		insert_node(target_desktop, node, target_desktop->focus);
+	}
 
 	if (target_desktop != d && !target_desktop_is_focused) {
 		client->flags.shown = false;
@@ -676,7 +690,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		client && client->app_id[0] ? client->app_id : "?",
 		client && client->title[0] ? client->title : "?", node->id);
 
-	if (!wants_float && xwayland_view->node && xwayland_view->node->client) {
+	if (!wants_float && !layout_floated && xwayland_view->node && xwayland_view->node->client) {
 		client_t *client = xwayland_view->node->client;
 		struct wlr_box *rect = &client->tiled_rectangle;
 		wlr_xwayland_surface_configure(xsurface, rect->x, rect->y, rect->width, rect->height);
@@ -740,22 +754,27 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 		wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, false);
 		wlr_scene_node_set_enabled(&xwayland_view->content_tree->node, false);
 	}
-
 	if (xwayland_view->node) {
 		output_t *mon = xwayland_view->node->output;
 		desktop_t *desk = NULL;
 
 		if (mon) {
+			node_t *root = xwayland_view->node;
+			while (root->parent != NULL)
+				root = root->parent;
+
 			desktop_t *d;
 			wl_list_for_each(d, &mon->desk_list, link) {
-				node_t *n = d->root;
-				if (n == xwayland_view->node || (n && (n->first_child == xwayland_view->node ||
-						n->second_child == xwayland_view->node))) {
+				if (d->root == root) {
 					desk = d;
 					break;
 				}
 			}
 		}
+
+		// floating and orphaned toplevels only know their desktop
+		if (desk == NULL && xwayland_view->node->desktop != NULL)
+			desk = xwayland_view->node->desktop;
 
 		if (xwayland_view->node->client)
 			xwayland_view->node->client->xwayland_view = NULL;
@@ -774,13 +793,13 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 			remove_node(desk, xwayland_view->node);
 			if (mon && desk) {
 				arrange(mon, desk, true);
-				if (desk->focus != NULL && desk->focus->client != NULL)
+
+				// the closed toplevel was the last one standing
+				if (desk->focus == xwayland_view->node || !node_focusable(desk->focus))
+					desk->focus = desktop_fallback_focus(desk, xwayland_view->node);
+
+				if (desk->focus != NULL)
 					focus_node(mon, desk, desk->focus);
-				else if (desk->root != NULL) {
-					desk->focus = first_extrema(desk->root);
-					if (desk->focus != NULL)
-						focus_node(mon, desk, desk->focus);
-				}
 			}
 		}
 

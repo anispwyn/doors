@@ -1,5 +1,6 @@
 #include "animation.h"
 #include "effects.h"
+#include "floating.h"
 #include "ipc.h"
 #include "layout.h"
 #include "output.h"
@@ -340,6 +341,20 @@ node_t *prev_leaf(node_t *n, node_t *r) {
 	return second_extrema(p->parent->first_child);
 }
 
+struct wlr_box desktop_usable_area(output_t *m, desktop_t *d) {
+	if (m == NULL || d == NULL)
+		return (struct wlr_box){0};
+
+	struct wlr_box rect = m->usable_area;
+
+	rect.x += m->padding.left + d->padding.left;
+	rect.y += m->padding.top + d->padding.top;
+	rect.width -= m->padding.left + d->padding.left + d->padding.right + m->padding.right;
+	rect.height -= m->padding.top + d->padding.top + d->padding.bottom + m->padding.bottom;
+
+	return rect;
+}
+
 void arrange(output_t *m, desktop_t *d, bool use_transaction) {
 	if (d->root == NULL) {
 		if (use_transaction)
@@ -350,12 +365,7 @@ void arrange(output_t *m, desktop_t *d, bool use_transaction) {
 	if (m == NULL)
 		return;
 
-	struct wlr_box rect = m->usable_area;
-
-	rect.x += m->padding.left + d->padding.left;
-	rect.y += m->padding.top + d->padding.top;
-	rect.width -= m->padding.left + d->padding.left + d->padding.right + m->padding.right;
-	rect.height -= m->padding.top + d->padding.top + d->padding.bottom + m->padding.bottom;
+	struct wlr_box rect = desktop_usable_area(m, d);
 
 	const layout_impl_t *impl = layout_get_impl(d->layout);
 	if (impl && impl->arrange)
@@ -682,6 +692,57 @@ unsigned int node_area(node_t *n) {
 		return 0;
 
 	return n->rectangle.width * n->rectangle.height;
+}
+
+bool node_focusable(node_t *n) {
+	if (n == NULL || n->client == NULL || n->destroying || n->freed)
+		return false;
+
+	// the toplevel behind the node has to still be alive
+	return n->client->toplevel != NULL || n->client->xwayland_view != NULL;
+}
+
+node_t *desktop_fallback_focus(desktop_t *d, node_t *skip) {
+	if (d == NULL)
+		return NULL;
+
+	node_t **toplevels = NULL;
+	int count = desktop_toplevels(d, &toplevels);
+	if (toplevels == NULL)
+		return NULL;
+
+	// get topmost floating toplevel
+	node_t *best = NULL;
+	struct wl_list *link = server.float_tree->children.prev;
+	while (link != &server.float_tree->children && best == NULL) {
+		struct wlr_scene_node *sn = wl_container_of(link, sn, link);
+
+		for (int i = 0; i < count; i++) {
+			node_t *n = toplevels[i];
+			if (n == skip || !IS_FLOATING(n->client) || !n->client->flags.shown)
+				continue;
+
+			struct wlr_scene_tree *st = client_get_scene_tree(n->client);
+			if (st != NULL && &st->node == sn)
+				best = n;
+		}
+
+		link = link->prev;
+	}
+
+	// no toplevel above tree, take the first one of it
+	if (best == NULL && d->root != NULL) {
+		FOR_EACH_LEAF(n, d->root) {
+			if (n != skip && n->client != NULL) {
+				best = n;
+				break;
+			}
+		}
+	}
+
+	free(toplevels);
+
+	return best != NULL && node_focusable(best) ? best : NULL;
 }
 
 node_t *find_public(desktop_t *d) {

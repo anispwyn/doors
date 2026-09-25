@@ -169,6 +169,7 @@ static const action_entry_t action_table[] = {
 	ENTRY2("toggle", "fullscreen", BIND_TOGGLE_FULLSCREEN),
 	ENTRY2("toggle", "pseudo_tiled", BIND_TOGGLE_PSEUDO_TILED),
 	ENTRY2("toggle", "monocle", BIND_TOGGLE_MONOCLE),
+	ENTRY2("toggle", "floating_layout", BIND_TOGGLE_FLOATING_LAYOUT),
 	ENTRY2("node", "-c", BIND_NODE_CLOSE),
 	ENTRY2("node", "--close", BIND_NODE_CLOSE),
 	ENTRY2("node", "-f", BIND_NODE_FOCUS),
@@ -187,9 +188,11 @@ static const action_entry_t action_table[] = {
 	ENTRY("desktop", "-l", "tiled", BIND_DESKTOP_LAYOUT_TILED),
 	ENTRY("desktop", "-l", "monocle", BIND_DESKTOP_LAYOUT_MONOCLE),
 	ENTRY("desktop", "-l", "master_stack", BIND_DESKTOP_LAYOUT_MASTER_STACK),
+	ENTRY("desktop", "-l", "floating", BIND_DESKTOP_LAYOUT_FLOATING),
 	ENTRY("desktop", "--layout", "tiled", BIND_DESKTOP_LAYOUT_TILED),
 	ENTRY("desktop", "--layout", "monocle", BIND_DESKTOP_LAYOUT_MONOCLE),
 	ENTRY("desktop", "--layout", "master_stack", BIND_DESKTOP_LAYOUT_MASTER_STACK),
+	ENTRY("desktop", "--layout", "floating", BIND_DESKTOP_LAYOUT_FLOATING),
 	ENTRY2("desktop", "last", BIND_DESKTOP_LAST),
 	ENTRY1("quit", BIND_QUIT),
 };
@@ -1172,6 +1175,10 @@ void execute_bind(bind_t b) {
 	case BIND_DESKTOP_LAYOUT_MASTER_STACK:
 		toggle_master_stack();
 		break;
+	case BIND_TOGGLE_FLOATING_LAYOUT:
+	case BIND_DESKTOP_LAYOUT_FLOATING:
+		toggle_floating_layout();
+		break;
 	case BIND_MASTER_STACK_INC:
 		if (mon && mon->desk) {
 			master_stack_increment(mon->desk);
@@ -1429,7 +1436,9 @@ const char *bind_action_name(bind_action_t action) {
 		"toggle_pseudo_tiled",
 		"toggle_monocle",
 		"toggle_master_stack",
+		"toggle_floating_layout",
 		"desktop_layout_master_stack",
+		"desktop_layout_floating",
 		"master_stack_inc",
 		"master_stack_dec",
 		"master_stack_flip",
@@ -1530,6 +1539,8 @@ bind_action_t bind_action_from_name(const char *name) {
 	ACTION_IF_MATCH("toggle_pseudo_tiled", BIND_TOGGLE_PSEUDO_TILED);
 	ACTION_IF_MATCH("toggle_monocle", BIND_TOGGLE_MONOCLE);
 	ACTION_IF_MATCH("toggle_master_stack", BIND_TOGGLE_MASTER_STACK);
+	ACTION_IF_MATCH("toggle_floating_layout", BIND_TOGGLE_FLOATING_LAYOUT);
+	ACTION_IF_MATCH("floating_layout", BIND_TOGGLE_FLOATING_LAYOUT);
 	ACTION_IF_MATCH("master_stack_inc", BIND_MASTER_STACK_INC);
 	ACTION_IF_MATCH("master_stack_dec", BIND_MASTER_STACK_DEC);
 	ACTION_IF_MATCH("master_stack_flip", BIND_MASTER_STACK_FLIP);

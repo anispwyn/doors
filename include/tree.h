@@ -16,12 +16,15 @@ client_t *make_client(void);
 void free_node(node_t *n);
 
 // Tree layout
+struct wlr_box desktop_usable_area(struct output_t *m, desktop_t *d);
 void arrange(struct output_t *m, desktop_t *d, bool use_transaction);
 void apply_layout(struct output_t *m, desktop_t *d, node_t *n, struct wlr_box rect,
 	struct wlr_box root_rect);
 
 // node insertion and removal
 node_t *find_public(desktop_t *d);
+node_t *desktop_fallback_focus(desktop_t *d, node_t *skip);
+bool node_focusable(node_t *n);
 node_t *insert_node(desktop_t *d, node_t *n, node_t *f);
 void remove_node(desktop_t *d, node_t *n);
 void kill_node(desktop_t *d, node_t *n);
@@ -41,8 +44,6 @@ node_t *second_extrema(node_t *n);
 node_t *next_leaf(node_t *n, node_t *r);
 node_t *prev_leaf(node_t *n, node_t *r);
 
-// Iterate over every leaf of the tree rooted at r. `it` is declared by the
-// macro and must be a fresh identifier (some callers break out of the loop).
 #define FOR_EACH_LEAF(it, r)                                                            \
 	for (node_t *it = first_extrema(r); it != NULL; it = next_leaf(it, r))
 #define FOR_EACH_LEAF_EXCLUDE_ROOT(it, r)                                               \
@@ -123,7 +124,6 @@ output_t *find_output_by_name(const char *name);
 #define IS_FLOATING(c) (is_floating(c))
 #define IS_RECEPTACLE(n) ((n) != NULL && (n)->client == NULL && is_leaf(n))
 
-// Client dispatch: unify toplevel/xwayland_view access
 #define CLIENT_DISPATCH(client, field) \
 	((client)->toplevel ? (client)->toplevel->field : \
 	 (client)->xwayland_view ? (client)->xwayland_view->field : NULL)

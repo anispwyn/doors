@@ -22,7 +22,7 @@
 - Looks like there is a 1px gap between toplevels and borders under certain conditions, likely a rounding error somewhere (observed on zed editor and ghostty on a two column layout with their toplevel on the right)
 
 # Potential
-- Per desktop rules (e.g. floating, master_stack)
+- Per desktop rules (e.g. force master_stack on a desktop)
 - Per layer-surface rules
 - Focus grab protocol
 - Overview/Expose mode from niri

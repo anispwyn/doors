@@ -71,7 +71,8 @@ typedef enum {
 	LAYOUT_TILED,
 	LAYOUT_MONOCLE,
 	LAYOUT_SCROLLER,
-	LAYOUT_MASTER_STACK
+	LAYOUT_MASTER_STACK,
+	LAYOUT_FLOATING
 } layout_t;
 
 static inline char layout_to_char(layout_t l) {
@@ -84,6 +85,8 @@ static inline char layout_to_char(layout_t l) {
 		return 'S';
 	case LAYOUT_MASTER_STACK:
 		return 'K';
+	case LAYOUT_FLOATING:
+		return 'F';
 	}
 	return 0;
 }
