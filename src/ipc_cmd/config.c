@@ -65,6 +65,28 @@ static void ipc_handle_border_color(char **args, int num, int client_fd, char *f
 	}
 }
 
+static const cfg_enum_value_t focus_on_activate_values[] = {
+	{"focus", FOCUS_ON_ACTIVATE_FOCUS},
+	{"none", FOCUS_ON_ACTIVATE_NONE},
+	{"smart", FOCUS_ON_ACTIVATE_SMART},
+	{"urgent", FOCUS_ON_ACTIVATE_URGENT},
+};
+
+static const cfg_enum_value_t decoration_mode_values[] = {
+	{"none", DECORATION_NONE},
+	{"tabs", DECORATION_TABS},
+	{"always", DECORATION_ALWAYS},
+	{"csd", DECORATION_CSD},
+};
+
+static const cfg_enum_value_t focus_follows_pointer_values[] = {
+	{"no", FOLLOWS_NO},
+	{"false", FOLLOWS_NO},
+	{"yes", FOLLOWS_YES},
+	{"true", FOLLOWS_YES},
+	{"always", FOLLOWS_ALWAYS},
+};
+
 void ipc_cmd_config(char **args, int num, int client_fd) {
 	if (num < 1) {
 		send_failure(client_fd, "config: Missing arguments\n");
@@ -113,53 +135,20 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 	} else if (streq("focus_wrapping", *args)) {
 		ipc_handle_bool(args, num, client_fd, &settings.focus_wrapping, IPC_FLAG_COMMIT);
 	} else if (streq("focus_on_activate", *args)) {
-		if (num >= 2) {
-			if (strcmp(args[1], "focus") == 0)
-				settings.focus_on_activate = FOCUS_ON_ACTIVATE_FOCUS;
-			else if (strcmp(args[1], "none") == 0)
-				settings.focus_on_activate = FOCUS_ON_ACTIVATE_NONE;
-			else if (strcmp(args[1], "smart") == 0)
-				settings.focus_on_activate = FOCUS_ON_ACTIVATE_SMART;
-			else if (strcmp(args[1], "urgent") == 0)
-				settings.focus_on_activate = FOCUS_ON_ACTIVATE_URGENT;
-			else {
-				send_failure(client_fd,
-					"config focus_on_activate: expected \"focus\", \"none\", \"smart\", or \"urgent\"\n");
-				return;
-			}
+		if (ipc_handle_enum(args, num, client_fd, &settings.focus_on_activate,
+			sizeof(settings.focus_on_activate), focus_on_activate_values,
+			sizeof(focus_on_activate_values) / sizeof(focus_on_activate_values[0]),
+			"config focus_on_activate: expected \"focus\", \"none\", \"smart\", or \"urgent\"\n"))
 			transaction_commit_dirty();
-			send_success(client_fd, "focus_on_activate set\n");
-		} else {
-			const char *mode = "focus";
-			if (settings.focus_on_activate == FOCUS_ON_ACTIVATE_NONE)
-				mode = "none";
-			else if (settings.focus_on_activate == FOCUS_ON_ACTIVATE_SMART)
-				mode = "smart";
-			else if (settings.focus_on_activate == FOCUS_ON_ACTIVATE_URGENT)
-				mode = "urgent";
-			char buf[64];
-			snprintf(buf, sizeof(buf), "%s\n", mode);
-			send_success(client_fd, buf);
-		}
 	} else if (streq("hide_lone_tab", *args)) {
 		ipc_handle_bool(args, num, client_fd, &settings.hide_lone_tab, IPC_FLAG_COMMIT);
 	} else if (streq("gapless_monocle", *args)) {
 		ipc_handle_bool(args, num, client_fd, &settings.gapless_monocle, IPC_FLAG_COMMIT);
 	} else if (streq("decoration_mode", *args)) {
-		if (num >= 2) {
-			if (strcmp(args[1], "none") == 0)
-				settings.decoration_mode = DECORATION_NONE;
-			else if (strcmp(args[1], "tabs") == 0)
-				settings.decoration_mode = DECORATION_TABS;
-			else if (strcmp(args[1], "always") == 0)
-				settings.decoration_mode = DECORATION_ALWAYS;
-			else if (strcmp(args[1], "csd") == 0)
-				settings.decoration_mode = DECORATION_CSD;
-			else {
-				send_failure(client_fd,
-					"config decoration_mode: expected \"none\", \"tabs\", \"always\", or \"csd\"\n");
-				return;
-			}
+		if (ipc_handle_enum(args, num, client_fd, &settings.decoration_mode,
+				sizeof(settings.decoration_mode), decoration_mode_values,
+				sizeof(decoration_mode_values) / sizeof(decoration_mode_values[0]),
+				"config decoration_mode: expected \"none\", \"tabs\", \"always\", or \"csd\"\n")) {
 			tabs_rebuild_all();
 
 			// refresh decor
@@ -168,24 +157,6 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 				toplevel_apply_decoration_mode(tl);
 
 			transaction_commit_dirty();
-			send_success(client_fd, "decoration_mode set\n");
-		} else {
-			const char *mode_str = "";
-			switch (settings.decoration_mode) {
-			case DECORATION_NONE:
-				mode_str = "none\n";
-				break;
-			case DECORATION_TABS:
-				mode_str = "tabs\n";
-				break;
-			case DECORATION_ALWAYS:
-				mode_str = "always\n";
-				break;
-			case DECORATION_CSD:
-				mode_str = "csd\n";
-				break;
-			}
-			send_success(client_fd, mode_str);
 		}
 	} else if (streq("enable_animations", *args)) {
 		ipc_handle_bool(args, num, client_fd, &settings.enable_animations, IPC_FLAG_NONE);
@@ -328,30 +299,11 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 	} else if (streq("scroller_structs", *args)) {
 		ipc_handle_int(args, num, client_fd, &scroller_structs, IPC_FLAG_NONE, 0, 1000000, NULL);
 	} else if (streq("focus_follows_pointer", *args) || streq("focus_follows_mouse", *args)) {
-		if (num >= 2) {
-			if (strcmp(args[1], "no") == 0 || strcmp(args[1], "false") == 0)
-				settings.focus_follows_mouse = FOLLOWS_NO;
-			else if (strcmp(args[1], "yes") == 0 || strcmp(args[1], "true") == 0)
-				settings.focus_follows_mouse = FOLLOWS_YES;
-			else if (strcmp(args[1], "always") == 0)
-				settings.focus_follows_mouse = FOLLOWS_ALWAYS;
-			else {
-				send_failure(client_fd,
-					"config focus_follows_pointer: expected \"no\", \"yes\", or \"always\"\n");
-				return;
-			}
+		if (ipc_handle_enum(args, num, client_fd, &settings.focus_follows_mouse,
+			sizeof(settings.focus_follows_mouse), focus_follows_pointer_values,
+			sizeof(focus_follows_pointer_values) / sizeof(focus_follows_pointer_values[0]),
+			"config focus_follows_pointer: expected \"no\", \"yes\", or \"always\"\n"))
 			transaction_commit_dirty();
-			send_success(client_fd, "focus_follows_pointer set\n");
-		} else {
-			const char *mode = "no";
-			if (settings.focus_follows_mouse == FOLLOWS_YES)
-				mode = "yes";
-			else if (settings.focus_follows_mouse == FOLLOWS_ALWAYS)
-				mode = "always";
-			char buf[64];
-			snprintf(buf, sizeof(buf), "%s\n", mode);
-			send_success(client_fd, buf);
-		}
 	} else if (streq("pointer_follows_focus", *args)) {
 		ipc_handle_bool(args, num, client_fd, &settings.pointer_follows_focus, IPC_FLAG_COMMIT);
 	} else if (streq("split_ratio", *args)) {
@@ -648,36 +600,15 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 			send_success(client_fd, buf);
 		}
 	} else if (streq("mica_tint", *args)) {
-		if (num >= 2) {
-			float rgba[4];
-			if (ipc_parse_color_float(args[1], rgba)) {
-				memcpy(mica_tint, rgba, sizeof(rgba));
-				output_t *m;
-				wl_list_for_each(m, &mon_list, link)
-					effects_invalidate_mica(m->effects);
-				send_success(client_fd, "mica_tint set\n");
-			} else {
-				send_failure(client_fd, "config mica_tint: expected \"R G B [A]\"\n");
-			}
-		} else {
-			char buf[128];
-			ipc_format_color_float(buf, sizeof(buf), mica_tint);
-			send_success(client_fd, buf);
+		if (ipc_handle_rgba(args, num, client_fd, mica_tint,
+				"config mica_tint: expected \"R G B [A]\"\n")) {
+			output_t *m;
+			wl_list_for_each(m, &mon_list, link)
+				effects_invalidate_mica(m->effects);
 		}
 	} else if (streq("acrylic_tint", *args)) {
-		if (num >= 2) {
-			float rgba[4];
-			if (ipc_parse_color_float(args[1], rgba)) {
-				memcpy(acrylic_tint, rgba, sizeof(rgba));
-				send_success(client_fd, "acrylic_tint set\n");
-			} else {
-				send_failure(client_fd, "config acrylic_tint: expected \"R G B [A]\"\n");
-			}
-		} else {
-			char buf[128];
-			ipc_format_color_float(buf, sizeof(buf), acrylic_tint);
-			send_success(client_fd, buf);
-		}
+		ipc_handle_rgba(args, num, client_fd, acrylic_tint,
+			"config acrylic_tint: expected \"R G B [A]\"\n");
 	} else if (streq("acrylic_tint_strength", *args)) {
 		ipc_handle_float(args, num, client_fd, &acrylic_tint_strength, IPC_FLAG_NONE, 0.0f, 1.0f, "%.3f\n",
 			"value must be 0.0-1.0");
@@ -835,19 +766,8 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 		ipc_handle_float(args, num, client_fd, &settings.shadow_offset_y, IPC_FLAG_NONE, -100.0f, 100.0f,
 			"%.1f\n", "value must be -100-100");
 	} else if (streq("shadow_color", *args)) {
-		if (num >= 2) {
-			float rgba[4];
-			if (ipc_parse_color_float(args[1], rgba)) {
-				memcpy(settings.shadow_color, rgba, sizeof(rgba));
-				send_success(client_fd, "shadow_color set\n");
-			} else {
-				send_failure(client_fd, "config shadow_color: expected \"R G B [A]\"\n");
-			}
-		} else {
-			char buf[128];
-			ipc_format_color_float(buf, sizeof(buf), settings.shadow_color);
-			send_success(client_fd, buf);
-		}
+		ipc_handle_rgba(args, num, client_fd, settings.shadow_color,
+			"config shadow_color: expected \"R G B [A]\"\n");
 	} else if (streq("idle_timeout", *args)) {
 		if (ipc_handle_int(args, num, client_fd, &settings.idle_timeout, IPC_FLAG_NONE, 0, 86400,
 			"value must be 0-86400"))

@@ -880,13 +880,10 @@ void resize_left(void) {
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
-		p->split_ratio -= RESIZE_AMOUNT;
-		if (p->split_ratio < 0.1)
-			p->split_ratio = 0.1;
-
-		// sync with pending and current state
-		p->pending.split_ratio = p->split_ratio;
-		p->current.split_ratio = p->split_ratio;
+		double ratio = p->split_ratio - RESIZE_AMOUNT;
+		if (ratio < 0.1)
+			ratio = 0.1;
+		node_set_split_ratio(p, ratio);
 		wlr_log(WLR_INFO, "resize_left: ratio_after=%f", p->split_ratio);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized left");
@@ -927,13 +924,10 @@ void resize_right(void) {
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
-		p->split_ratio += RESIZE_AMOUNT;
-		if (p->split_ratio > 0.9)
-			p->split_ratio = 0.9;
-
-		// sync with pending and current state
-		p->pending.split_ratio = p->split_ratio;
-		p->current.split_ratio = p->split_ratio;
+		double ratio = p->split_ratio + RESIZE_AMOUNT;
+		if (ratio > 0.9)
+			ratio = 0.9;
+		node_set_split_ratio(p, ratio);
 		wlr_log(WLR_INFO, "resize_right: ratio_after=%f", p->split_ratio);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized right");
@@ -977,13 +971,10 @@ void resize_up(void) {
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
-		p->split_ratio -= RESIZE_AMOUNT;
-		if (p->split_ratio < 0.1)
-			p->split_ratio = 0.1;
-
-		// sync with pending and current state
-		p->pending.split_ratio = p->split_ratio;
-		p->current.split_ratio = p->split_ratio;
+		double ratio = p->split_ratio - RESIZE_AMOUNT;
+		if (ratio < 0.1)
+			ratio = 0.1;
+		node_set_split_ratio(p, ratio);
 		wlr_log(WLR_INFO, "resize_up: ratio_after=%f", p->split_ratio);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized up");
@@ -1027,13 +1018,10 @@ void resize_down(void) {
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
-		p->split_ratio += RESIZE_AMOUNT;
-		if (p->split_ratio > 0.9)
-			p->split_ratio = 0.9;
-
-		// sync with pending and current state
-		p->pending.split_ratio = p->split_ratio;
-		p->current.split_ratio = p->split_ratio;
+		double ratio = p->split_ratio + RESIZE_AMOUNT;
+		if (ratio > 0.9)
+			ratio = 0.9;
+		node_set_split_ratio(p, ratio);
 		wlr_log(WLR_INFO, "resize_down: ratio_after=%f", p->split_ratio);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized down");

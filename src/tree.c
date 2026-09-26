@@ -183,6 +183,37 @@ static bool is_second_child(node_t *n) {
 	return n != NULL && n->parent != NULL && n->parent->second_child == n;
 }
 
+void node_replace_child(desktop_t *d, node_t *old, node_t *new, node_t *parent) {
+	if (parent != NULL) {
+		if (is_first_child(old))
+			parent->first_child = new;
+		else
+			parent->second_child = new;
+	} else {
+		d->root = new;
+	}
+	new->parent = parent;
+}
+
+void node_sync_split(node_t *n) {
+	n->pending.split_type = n->split_type;
+	n->pending.split_ratio = n->split_ratio;
+	n->current.split_type = n->split_type;
+	n->current.split_ratio = n->split_ratio;
+}
+
+void node_set_split_type(node_t *n, split_type_t type) {
+	n->split_type = type;
+	n->pending.split_type = type;
+	n->current.split_type = type;
+}
+
+void node_set_split_ratio(node_t *n, double ratio) {
+	n->split_ratio = ratio;
+	n->pending.split_ratio = ratio;
+	n->current.split_ratio = ratio;
+}
+
 static unsigned int clients_count_in(node_t *n) {
 	if (n == NULL)
 		return 0;
@@ -332,14 +363,7 @@ node_t *insert_node(desktop_t *d, node_t *n, node_t *f) {
 	if (IS_RECEPTACLE(f) && f->presel == NULL) {
 		wlr_log(WLR_DEBUG, "insert_node: replacing receptacle %u with node %u", f->id, n->id);
 		node_t *p = f->parent;
-		if (p != NULL) {
-			if (is_first_child(f))
-				p->first_child = n;
-			else
-				p->second_child = n;
-		} else
-			d->root = n;
-		n->parent = p;
+		node_replace_child(d, f, n, p);
 		free_node(f);
 		return NULL;
 	}
@@ -363,15 +387,7 @@ node_t *insert_node(desktop_t *d, node_t *n, node_t *f) {
 		if (p == NULL || settings.automatic_scheme != SCHEME_SPIRAL || single_tiled || (p != NULL &&
 				p->split_type == TYPE_TABBED)) {
 			// normal insertion
-			if (p != NULL) {
-				if (is_first_child(f))
-					p->first_child = c;
-				else
-					p->second_child = c;
-			} else
-				d->root = c;
-
-			c->parent = p;
+			node_replace_child(d, f, c, p);
 			f->parent = c;
 
 			if (settings.initial_polarity == FIRST_CHILD) {
@@ -402,32 +418,16 @@ node_t *insert_node(desktop_t *d, node_t *n, node_t *f) {
 
 			c->split_ratio = 0.5;
 
-			// sync with pending state
-			c->pending.split_type = c->split_type;
-			c->pending.split_ratio = c->split_ratio;
-			c->current.split_type = c->split_type;
-			c->current.split_ratio = c->split_ratio;
+			node_sync_split(c);
 		} else {
 			// spiral insertion
 			node_t *g = p->parent;
-			c->parent = g;
-
-			if (g != NULL) {
-				if (is_first_child(p))
-					g->first_child = c;
-				else
-					g->second_child = c;
-			} else
-				d->root = c;
+			node_replace_child(d, p, c, g);
 
 			c->split_type = p->split_type;
 			c->split_ratio = p->split_ratio;
 
-			// sync with pending state
-			c->pending.split_type = c->split_type;
-			c->pending.split_ratio = c->split_ratio;
-			c->current.split_type = c->split_type;
-			c->current.split_ratio = c->split_ratio;
+			node_sync_split(c);
 
 			p->parent = c;
 
@@ -461,29 +461,25 @@ node_t *insert_node(desktop_t *d, node_t *n, node_t *f) {
 		switch (f->presel->split_dir) {
 		case DIR_WEST:
 			c->split_type = TYPE_VERTICAL;
-			c->pending.split_type = TYPE_VERTICAL;
-			c->current.split_type = TYPE_VERTICAL;
+			node_set_split_type(c, TYPE_VERTICAL);
 			c->first_child = n;
 			c->second_child = f;
 			break;
 		case DIR_EAST:
 			c->split_type = TYPE_VERTICAL;
-			c->pending.split_type = TYPE_VERTICAL;
-			c->current.split_type = TYPE_VERTICAL;
+			node_set_split_type(c, TYPE_VERTICAL);
 			c->first_child = f;
 			c->second_child = n;
 			break;
 		case DIR_NORTH:
 			c->split_type = TYPE_HORIZONTAL;
-			c->pending.split_type = TYPE_HORIZONTAL;
-			c->current.split_type = TYPE_HORIZONTAL;
+			node_set_split_type(c, TYPE_HORIZONTAL);
 			c->first_child = n;
 			c->second_child = f;
 			break;
 		case DIR_SOUTH:
 			c->split_type = TYPE_HORIZONTAL;
-			c->pending.split_type = TYPE_HORIZONTAL;
-			c->current.split_type = TYPE_HORIZONTAL;
+			node_set_split_type(c, TYPE_HORIZONTAL);
 			c->first_child = f;
 			c->second_child = n;
 			break;
@@ -565,20 +561,15 @@ void remove_node(desktop_t *d, node_t *n) {
 			return;
 		}
 
-		b->parent = g;
+		node_replace_child(d, p, b, g);
 
 		if (g != NULL) {
-			if (is_first_child(p))
-				g->first_child = b;
-			else
-				g->second_child = b;
 			if (n_is_first)
 				p->first_child = NULL;
 			else
 				p->second_child = NULL;
 			p->parent = NULL;
-		} else
-			d->root = b;
+		}
 
 		// clear detached pointers
 		n->parent = NULL;
@@ -588,8 +579,7 @@ void remove_node(desktop_t *d, node_t *n) {
 		// propagate TYPE_TABBED so remaining leaves stay tabbed
 		if (p->split_type == TYPE_TABBED && !is_leaf(b)) {
 			b->split_type = TYPE_TABBED;
-			b->pending.split_type = TYPE_TABBED;
-			b->current.split_type = TYPE_TABBED;
+			node_set_split_type(b, TYPE_TABBED);
 		}
 
 		// adjust tree structure
@@ -603,24 +593,20 @@ void remove_node(desktop_t *d, node_t *n) {
 				if (p != NULL && !is_leaf(b)) {
 					if (p->rectangle.width > p->rectangle.height) {
 						b->split_type = TYPE_VERTICAL;
-						b->pending.split_type = TYPE_VERTICAL;
-						b->current.split_type = TYPE_VERTICAL;
+						node_set_split_type(b, TYPE_VERTICAL);
 					} else {
 						b->split_type = TYPE_HORIZONTAL;
-						b->pending.split_type = TYPE_HORIZONTAL;
-						b->current.split_type = TYPE_HORIZONTAL;
+						node_set_split_type(b, TYPE_HORIZONTAL);
 					}
 				}
 			} else if (settings.automatic_scheme == SCHEME_ALTERNATE) {
 				if (g != NULL && !is_leaf(b)) {
 					if (g->split_type == TYPE_HORIZONTAL) {
 						b->split_type = TYPE_VERTICAL;
-						b->pending.split_type = TYPE_VERTICAL;
-						b->current.split_type = TYPE_VERTICAL;
+						node_set_split_type(b, TYPE_VERTICAL);
 					} else {
 						b->split_type = TYPE_HORIZONTAL;
-						b->pending.split_type = TYPE_HORIZONTAL;
-						b->current.split_type = TYPE_HORIZONTAL;
+						node_set_split_type(b, TYPE_HORIZONTAL);
 					}
 				}
 			}
@@ -1027,6 +1013,7 @@ void rotate_tree(node_t *n, int deg) {
 		return;
 
 	node_t *tmp;
+	bool rotated = false;
 
 	// swap children
 	if ((deg == 90 && n->split_type == TYPE_HORIZONTAL) || (deg == 270 &&
@@ -1036,6 +1023,7 @@ void rotate_tree(node_t *n, int deg) {
 		n->first_child = n->second_child;
 		n->second_child = tmp;
 		n->split_ratio = 1.0 - n->split_ratio;
+		rotated = true;
 	}
 
 	// flip split type for quarter rotations
@@ -1044,11 +1032,11 @@ void rotate_tree(node_t *n, int deg) {
 			n->split_type = TYPE_VERTICAL;
 		else if (n->split_type == TYPE_VERTICAL)
 			n->split_type = TYPE_HORIZONTAL;
-
-		// sync with pending state
-		n->pending.split_type = n->split_type;
-		n->current.split_type = n->split_type;
+		rotated = true;
 	}
+
+	if (rotated)
+		node_sync_split(n);
 
 	rotate_tree(n->first_child, deg);
 	rotate_tree(n->second_child, deg);
@@ -1076,7 +1064,7 @@ static void equalize_rec(node_t *n) {
 	if (is_leaf(n))
 		return;
 
-	n->split_ratio = 0.5;
+	node_set_split_ratio(n, 0.5);
 
 	equalize_rec(n->first_child);
 	equalize_rec(n->second_child);
@@ -1098,7 +1086,7 @@ static void balance_rec(node_t *n) {
 	unsigned int c1 = clients_count_in(n->first_child);
 	unsigned int total = c1 + clients_count_in(n->second_child);
 	if (total > 0)
-		n->split_ratio = (double)c1 / (double)total;
+		node_set_split_ratio(n, (double)c1 / (double)total);
 
 	balance_rec(n->first_child);
 	balance_rec(n->second_child);

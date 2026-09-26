@@ -283,9 +283,7 @@ static void process_cursor_tiled_resize(void) {
 		if (new_ratio > RESIZE_RATIO_MAX)
 			new_ratio = RESIZE_RATIO_MAX;
 
-		parent->split_ratio = new_ratio;
-		parent->pending.split_ratio = new_ratio;
-		parent->current.split_ratio = new_ratio;
+		node_set_split_ratio(parent, new_ratio);
 	}
 
 	// handle vertical resizing
@@ -310,9 +308,7 @@ static void process_cursor_tiled_resize(void) {
 		if (new_ratio > RESIZE_RATIO_MAX)
 			new_ratio = RESIZE_RATIO_MAX;
 
-		parent->split_ratio = new_ratio;
-		parent->pending.split_ratio = new_ratio;
-		parent->current.split_ratio = new_ratio;
+		node_set_split_ratio(parent, new_ratio);
 	}
 
 	// Use the proper layout function to recompute all positions

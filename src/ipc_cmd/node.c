@@ -93,6 +93,18 @@ static void unlink_and_refocus(node_t *n, desktop_t *src, output_t *mon) {
 	n->ntxnrefs = 0;
 }
 
+static bool *node_flag_field(node_t *n, const char *key) {
+	if (strcmp(key, "sticky") == 0)
+		return &n->sticky;
+	if (strcmp(key, "private") == 0)
+		return &n->private_node;
+	if (strcmp(key, "locked") == 0)
+		return &n->locked;
+	if (strcmp(key, "marked") == 0)
+		return &n->marked;
+	return NULL;
+}
+
 void ipc_cmd_node(char **args, int num, int client_fd) {
 	if (num < 1) {
 		send_failure(client_fd, "node: Missing arguments\n");
@@ -253,24 +265,13 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 			}
 		}
 
+		bool *node_flag = node_flag_field(n, key);
 		if (strcmp(key, "hidden") == 0) {
 			node_set_hidden(n, has_value ? set_value : !n->hidden);
 			transaction_commit_dirty();
 			send_success(client_fd, "flag changed\n");
-		} else if (strcmp(key, "sticky") == 0) {
-			n->sticky = has_value ? set_value : !n->sticky;
-			transaction_commit_dirty();
-			send_success(client_fd, "flag changed\n");
-		} else if (strcmp(key, "private") == 0) {
-			n->private_node = has_value ? set_value : !n->private_node;
-			transaction_commit_dirty();
-			send_success(client_fd, "flag changed\n");
-		} else if (strcmp(key, "locked") == 0) {
-			n->locked = has_value ? set_value : !n->locked;
-			transaction_commit_dirty();
-			send_success(client_fd, "flag changed\n");
-		} else if (strcmp(key, "marked") == 0) {
-			n->marked = has_value ? set_value : !n->marked;
+		} else if (node_flag != NULL) {
+			*node_flag = has_value ? set_value : !*node_flag;
 			transaction_commit_dirty();
 			send_success(client_fd, "flag changed\n");
 		} else if (strcmp(key, "blur") == 0) {
@@ -724,9 +725,7 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 				st = TYPE_TABBED;
 			else if (streq("vertical", *args))
 				st = TYPE_VERTICAL;
-			target->split_type = st;
-			target->pending.split_type = st;
-			target->current.split_type = st;
+			node_set_split_type(target, st);
 
 			if (prev_st == TYPE_TABBED && st != TYPE_TABBED) {
 				tabs_destroy(target);
@@ -759,7 +758,7 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 			send_success(client_fd, "type changed\n");
 			return;
 		}
-		n->split_type = (n->split_type + 1) % 2;
+		node_set_split_type(n, (split_type_t)((n->split_type + 1) % 2));
 
 		transaction_commit_dirty();
 		send_success(client_fd, "type changed\n");
@@ -798,7 +797,7 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		}
 
 		if (rat > 0 && rat < 1) {
-			n->split_ratio = rat;
+			node_set_split_ratio(n, rat);
 			transaction_commit_dirty();
 			send_success(client_fd, "ratio changed\n");
 		} else {

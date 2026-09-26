@@ -1,6 +1,7 @@
 #include "ipc_helpers.h"
 #include "server.h"
 #include "transaction.h"
+#include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -199,4 +200,62 @@ node_t *ipc_focused_node(int client_fd, const char *ctx, output_t **mon, desktop
 		return NULL;
 	}
 	return n;
+}
+
+bool ipc_handle_enum(char **args, int num, int client_fd, void *var, size_t varsize,
+		const cfg_enum_value_t *values, size_t nvalues, const char *errmsg) {
+	assert(varsize == sizeof(int));
+	int cur;
+	memcpy(&cur, var, sizeof(cur));
+
+	char buf[128];
+	if (num < 2) {
+		const char *name = NULL;
+		for (size_t i = 0; i < nvalues; i++) {
+			if (values[i].value == cur) {
+				name = values[i].name;
+				break;
+			}
+		}
+		// fall back to the raw value if it is outside the table
+		if (name != NULL)
+			snprintf(buf, sizeof(buf), "%s\n", name);
+		else
+			snprintf(buf, sizeof(buf), "%d\n", cur);
+		send_success(client_fd, buf);
+		return false;
+	}
+
+	for (size_t i = 0; i < nvalues; i++) {
+		if (streq(values[i].name, args[1])) {
+			int next = (int)values[i].value;
+			memcpy(var, &next, sizeof(next));
+			snprintf(buf, sizeof(buf), "%s set\n", args[0]);
+			send_success(client_fd, buf);
+			return true;
+		}
+	}
+
+	send_failure(client_fd, errmsg);
+	return false;
+}
+
+bool ipc_handle_rgba(char **args, int num, int client_fd, float rgba[4], const char *errmsg) {
+	if (num < 2) {
+		char buf[128];
+		ipc_format_color_float(buf, sizeof(buf), rgba);
+		send_success(client_fd, buf);
+		return false;
+	}
+
+	float parsed[4];
+	if (!ipc_parse_color_float(args[1], parsed)) {
+		send_failure(client_fd, errmsg);
+		return false;
+	}
+	memcpy(rgba, parsed, sizeof(parsed));
+	char msg[128];
+	snprintf(msg, sizeof(msg), "%s set\n", args[0]);
+	send_success(client_fd, msg);
+	return true;
 }

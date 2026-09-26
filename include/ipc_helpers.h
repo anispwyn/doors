@@ -23,4 +23,14 @@ bool ipc_handle_int(char **args, int num, int client_fd, int *var, int flags, in
 bool ipc_handle_float(char **args, int num, int client_fd, float *var, int flags, float min,
 	float max, const char *fmt, const char *errmsg);
 
+typedef struct {
+	const char *name;
+	long value;
+} cfg_enum_value_t;
+
+bool ipc_handle_enum(char **args, int num, int client_fd, void *var, size_t varsize,
+	const cfg_enum_value_t *values, size_t nvalues, const char *errmsg);
+
+bool ipc_handle_rgba(char **args, int num, int client_fd, float rgba[4], const char *errmsg);
+
 node_t *ipc_focused_node(int client_fd, const char *ctx, output_t **mon, desktop_t **desk);

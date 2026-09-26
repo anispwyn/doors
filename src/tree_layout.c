@@ -126,16 +126,7 @@ static bool repair_split_node(node_t *n, desktop_t *d, output_t *m, struct wlr_b
 			"promoting child %u; this indicates a tree inconsistency that "
 			"should have been resolved by remove_node", n->id, valid->id);
 
-		if (n->parent != NULL) {
-			if (is_first_child(n))
-				n->parent->first_child = valid;
-			else
-				n->parent->second_child = valid;
-			valid->parent = n->parent;
-		} else {
-			d->root = valid;
-			valid->parent = NULL;
-		}
+		node_replace_child(d, n, valid, n->parent);
 
 		n->first_child = NULL;
 		n->second_child = NULL;

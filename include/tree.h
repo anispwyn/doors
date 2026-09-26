@@ -28,6 +28,12 @@ bool is_tiled(client_t *c);
 bool is_floating(client_t *c);
 bool is_first_child(node_t *n);
 
+void node_replace_child(desktop_t *d, node_t *old, node_t *new, node_t *parent);
+
+void node_set_split_type(node_t *n, split_type_t type);
+void node_set_split_ratio(node_t *n, double ratio);
+void node_sync_split(node_t *n);
+
 static inline bool node_is_detached(node_t *n) {
 	return n != NULL && is_floating(n->client);
 }
