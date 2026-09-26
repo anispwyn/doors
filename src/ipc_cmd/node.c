@@ -231,17 +231,10 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -g: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -g", &m, NULL);
+		if (!n)
 			return;
-		}
-
-		node_t *n = m->desk->focus;
-		if (!n) {
-			send_failure(client_fd, "node -g: no focused node\n");
-			return;
-		}
 
 		char *key = strtok(*args, "=");
 		char *val = strtok(NULL, "=");
@@ -360,13 +353,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 			return;
 		}
 	} else if (streq("-S", *args) || streq("--scratchpad", *args)) {
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -S: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -S", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n || !n->client) {
+		if (!n->client) {
 			send_failure(client_fd, "node -S: no focused client\n");
 			return;
 		}
@@ -380,14 +371,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -v: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -v", &m, NULL);
+		if (!n)
 			return;
-		}
-
-		node_t *n = m->desk->focus;
-		if (!n || !n->client) {
+		if (!n->client) {
 			send_failure(client_fd, "node -v: no focused client\n");
 			return;
 		}
@@ -422,14 +410,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -z: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -z", &m, NULL);
+		if (!n)
 			return;
-		}
-
-		node_t *n = m->desk->focus;
-		if (!n || !n->client) {
+		if (!n->client) {
 			send_failure(client_fd, "node -z: no focused client\n");
 			return;
 		}
@@ -505,29 +490,17 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 
 		send_success(client_fd, "resized\n");
 	} else if (streq("-a", *args) || streq("--activate", *args)) {
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -a: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -a", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n) {
-			send_failure(client_fd, "node -a: no focused node\n");
-			return;
-		}
 		activate_node(m, m->desk, n);
 		send_success(client_fd, "activated\n");
 	} else if (streq("-k", *args) || streq("--kill", *args)) {
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -k: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -k", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n) {
-			send_failure(client_fd, "node -k: no focused node\n");
-			return;
-		}
 		kill_node(m->desk, n);
 		transaction_commit_dirty();
 		send_success(client_fd, "killed\n");
@@ -612,14 +585,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -n: no focused desktop\n");
+		output_t *m;
+		node_t *n1 = ipc_focused_node(client_fd, "node -n", &m, NULL);
+		if (!n1)
 			return;
-		}
-
-		node_t *n1 = m->desk->focus;
-		if (!n1 || !n1->client) {
+		if (!n1->client) {
 			send_failure(client_fd, "node -n: no focused client\n");
 			return;
 		}
@@ -677,13 +647,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -l: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -l", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n || !n->client) {
+		if (!n->client) {
 			send_failure(client_fd, "node -l: no client\n");
 			return;
 		}
@@ -711,16 +679,10 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -y: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -y", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n) {
-			send_failure(client_fd, "node -y: no focused node\n");
-			return;
-		}
 
 		if (streq("next_tab", *args) || streq("next.tab", *args)) {
 			node_t *t = tabbed_ancestor(n);
@@ -809,16 +771,10 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -r: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -r", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n) {
-			send_failure(client_fd, "node -r: no focused node\n");
-			return;
-		}
 
 		double rat;
 		if ((*args)[0] == '+' || (*args)[0] == '-') {
@@ -857,16 +813,10 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -C: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -C", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n) {
-			send_failure(client_fd, "node -C: no focused node\n");
-			return;
-		}
 
 		if (streq("forward", *args) || streq("f", *args)) {
 			node_t *next = next_leaf(n, m->desk->root);
@@ -946,13 +896,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -p: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -p", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n || n->vacant) {
+		if (n->vacant) {
 			send_failure(client_fd, "node -p: no valid node\n");
 			return;
 		}
@@ -991,13 +939,11 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -o: no focused desktop\n");
+		output_t *m;
+		node_t *n = ipc_focused_node(client_fd, "node -o", &m, NULL);
+		if (!n)
 			return;
-		}
-		node_t *n = m->desk->focus;
-		if (!n || n->vacant) {
+		if (n->vacant) {
 			send_failure(client_fd, "node -o: no valid node\n");
 			return;
 		}
@@ -1023,17 +969,10 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 		args++;
 		num--;
 
-		output_t *m = server.focused_output;
-		if (!m || !m->desk) {
-			send_failure(client_fd, "node -s: no focused desktop\n");
+		output_t *m;
+		node_t *n1 = ipc_focused_node(client_fd, "node -s", &m, NULL);
+		if (!n1)
 			return;
-		}
-
-		node_t *n1 = m->desk->focus;
-		if (!n1) {
-			send_failure(client_fd, "node -s: no focused node\n");
-			return;
-		}
 
 		node_t *n2 = NULL;
 		int target_id = atoi(*args);

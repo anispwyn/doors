@@ -625,14 +625,10 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 		ipc_handle_float(args, num, client_fd, &blur_contrast, IPC_FLAG_NONE, 0.5f, 2.0f, "%.3f\n",
 			"value must be 0.5-2.0");
 	} else if (streq("mica_enabled", *args)) {
-		if (num >= 2) {
-			mica_enabled = (strcmp(args[1], "true") == 0);
+		if (ipc_handle_bool(args, num, client_fd, &mica_enabled, IPC_FLAG_NONE)) {
 			output_t *m;
 			wl_list_for_each(m, &mon_list, link)
 				effects_invalidate_mica(m->effects);
-			send_success(client_fd, "mica_enabled set\n");
-		} else {
-			send_success(client_fd, mica_enabled ? "true\n" : "false\n");
 		}
 	} else if (streq("mica_tint_strength", *args)) {
 		if (num >= 2) {
@@ -860,8 +856,8 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 		if (ipc_handle_bool(args, num, client_fd, &settings.idle_dpms, IPC_FLAG_NONE))
 			idle_power_reset_timer();
 	} else if (streq("realtime_scheduling", *args)) {
-		ipc_handle_bool(args, num, client_fd, &settings.realtime_scheduling, IPC_FLAG_NONE);
-		if (settings.realtime_scheduling)
+		if (ipc_handle_bool(args, num, client_fd, &settings.realtime_scheduling,
+			IPC_FLAG_NONE) && settings.realtime_scheduling)
 			set_rr_scheduling();
 	} else {
 		send_failure(client_fd, "config: unknown setting\n");

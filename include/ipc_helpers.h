@@ -1,5 +1,6 @@
 #pragma once
 
+#include "output.h"
 #include "types.h"
 
 #include <stdbool.h>
@@ -21,3 +22,5 @@ bool ipc_handle_int(char **args, int num, int client_fd, int *var, int flags, in
 	const char *errmsg);
 bool ipc_handle_float(char **args, int num, int client_fd, float *var, int flags, float min,
 	float max, const char *fmt, const char *errmsg);
+
+node_t *ipc_focused_node(int client_fd, const char *ctx, output_t **mon, desktop_t **desk);

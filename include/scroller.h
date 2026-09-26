@@ -82,7 +82,8 @@ void scroller_cycle_proportion_preset(client_t *client);
 
 void scroller_apply_active_focus(desktop_t *d, struct output_t *m);
 
-// point the active column and tile at given client, so navigation continues from the focused toplevel
+// point the active column and tile at given client,
+// so navigation continues from the focused toplevel
 void scroller_sync_focus(scroller_state_t *s, client_t *c);
 
 void scroller_view_offset_gesture_begin(desktop_t *d, bool is_touchpad);

@@ -768,9 +768,26 @@ static submap_t *find_or_create_submap(const char *name) {
 	return sm;
 }
 
+struct pending_bind {
+	char hotkey[MAXLEN * 2];
+	char command[MAXLEN * 2];
+	size_t indent;
+};
+
+static void flush_pending_bind(struct pending_bind *p) {
+	if (p->hotkey[0] == '\0')
+		return;
+	char hotkey[MAXLEN * 2], command[MAXLEN * 2];
+	snprintf(hotkey, sizeof(hotkey), "%s", p->hotkey);
+	snprintf(command, sizeof(command), "%s", p->command);
+	parse_hotkey_line(hotkey, command);
+	p->hotkey[0] = '\0';
+	p->command[0] = '\0';
+	p->indent = 0;
+}
+
 void load_hotkeys(const char *config_path) {
 	wlr_log(WLR_DEBUG, "load_hotkeys called with path: %s", config_path);
-
 	FILE *f = fopen(config_path, "r");
 	if (!f) {
 		wlr_log(WLR_INFO, "No hotkey config found at %s", config_path);
@@ -786,16 +803,8 @@ void load_hotkeys(const char *config_path) {
 	bell_bind = (keybind_t){0};
 
 	char line[MAXLEN * 2];
-	char hotkey[MAXLEN * 2];
-	char command[MAXLEN * 2];
 	int offset = 0;
-	hotkey[0] = '\0';
-	command[0] = '\0';
-	char pending_hotkey[MAXLEN * 2];
-	char pending_command[MAXLEN * 2];
-	pending_hotkey[0] = '\0';
-	pending_command[0] = '\0';
-	size_t pending_hotkey_indent = 0;
+	struct pending_bind pending = {0};
 
 	while (fgets(line, sizeof(line), f)) {
 		wlr_log(WLR_DEBUG, "Config line: [%s]", line);
@@ -818,115 +827,86 @@ void load_hotkeys(const char *config_path) {
 
 		if (first_char == '@') {
 			if (indent == 0) {
-				if (pending_hotkey[0] != '\0') {
-					snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
-					snprintf(command, sizeof(command), "%s", pending_command);
-					parse_hotkey_line(hotkey, command);
-					pending_hotkey[0] = '\0';
-					pending_command[0] = '\0';
-				}
-				pending_hotkey_indent = 0;
+				flush_pending_bind(&pending);
+				pending.indent = 0;
 				char *submap_name = content_start + 1;
 				current_parsing_submap = find_or_create_submap(submap_name);
 			} else {
-				snprintf(pending_command, sizeof(pending_command), "%s", content_start);
-				offset = strlen(pending_command);
+				snprintf(pending.command, sizeof(pending.command), "%s", content_start);
+				offset = strlen(pending.command);
 			}
 			continue;
 		}
 
 		if (current_parsing_submap != NULL && indent == 0) {
-			if (pending_hotkey[0] != '\0') {
-				snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
-				snprintf(command, sizeof(command), "%s", pending_command);
-				parse_hotkey_line(hotkey, command);
-				pending_hotkey[0] = '\0';
-				pending_command[0] = '\0';
-				pending_hotkey_indent = 0;
-			}
+			flush_pending_bind(&pending);
 			current_parsing_submap = NULL;
 		}
 
 		if (indent == 0 && strstr(ptr, "->")) {
 			char *arrow = strstr(ptr, "->");
 			if (arrow) {
-				if (pending_hotkey[0] != '\0') {
-					snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
-					snprintf(command, sizeof(command), "%s", pending_command);
-					parse_hotkey_line(hotkey, command);
-					pending_hotkey[0] = '\0';
-					pending_command[0] = '\0';
-					pending_hotkey_indent = 0;
-				}
+				flush_pending_bind(&pending);
 				size_t key_part_len = arrow - ptr;
 				while (key_part_len > 0 && ptr[key_part_len - 1] == ' ')
 					key_part_len--;
-				if (key_part_len < sizeof(pending_hotkey)) {
-					strncpy(pending_hotkey, ptr, key_part_len);
-					pending_hotkey[key_part_len] = '\0';
+				if (key_part_len < sizeof(pending.hotkey)) {
+					strncpy(pending.hotkey, ptr, key_part_len);
+					pending.hotkey[key_part_len] = '\0';
 				}
 				char *cmd_part = arrow + 2;
 				while (*cmd_part == ' ')
 					cmd_part++;
-				snprintf(pending_command, sizeof(pending_command), "%s", cmd_part);
-				pending_hotkey_indent = indent;
-				offset = strlen(pending_command);
+				snprintf(pending.command, sizeof(pending.command), "%s", cmd_part);
+				pending.indent = indent;
+				offset = strlen(pending.command);
 				continue;
 			}
 		}
 
 		if (isgraph((unsigned char)first_char) || (first_char != '\0' &&
 				!isspace((unsigned char)first_char))) {
-			if (pending_hotkey[0] != '\0') {
-				if (indent == 0 || indent <= pending_hotkey_indent) {
-					snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
-					snprintf(command, sizeof(command), "%s", pending_command);
-					parse_hotkey_line(hotkey, command);
-					pending_hotkey[0] = '\0';
-					pending_command[0] = '\0';
-					pending_hotkey_indent = 0;
+			if (pending.hotkey[0] != '\0') {
+				if (indent == 0 || indent <= pending.indent) {
+					flush_pending_bind(&pending);
 				} else {
-					if (pending_command[0] != '\0') {
-						size_t cur_len = strlen(pending_command);
-						size_t rem = sizeof(pending_command) - cur_len - 1;
+					if (pending.command[0] != '\0') {
+						size_t cur_len = strlen(pending.command);
+						size_t rem = sizeof(pending.command) - cur_len - 1;
 						if (rem > 0)
-							snprintf(pending_command + cur_len, rem, " %s", content_start);
+							snprintf(pending.command + cur_len, rem, " %s", content_start);
 					} else {
-						snprintf(pending_command, sizeof(pending_command), "%s", content_start);
+						snprintf(pending.command, sizeof(pending.command), "%s", content_start);
 					}
-					offset = strlen(pending_command);
+					offset = strlen(pending.command);
 					continue;
 				}
 			}
-			snprintf(pending_hotkey, sizeof(pending_hotkey), "%s", content_start);
-			pending_command[0] = '\0';
-			pending_hotkey_indent = indent;
+			snprintf(pending.hotkey, sizeof(pending.hotkey), "%s", content_start);
+			pending.command[0] = '\0';
+			pending.indent = indent;
 			offset = 0;
-		} else if (pending_hotkey[0] != '\0') {
-			if (pending_command[0] != '\0' && offset > 0 && pending_command[offset - 1] != ' ') {
-				pending_command[offset++] = ' ';
+		} else if (pending.hotkey[0] != '\0') {
+			if (pending.command[0] != '\0' && offset > 0 && pending.command[offset - 1] != ' ') {
+				pending.command[offset++] = ' ';
 			}
 			bool last_was_space = false;
-			for (size_t i = 0; ptr[i] && offset < (int)sizeof(pending_command) - 1; i++) {
+			for (size_t i = 0; ptr[i] && offset < (int)sizeof(pending.command) - 1; i++) {
 				if (isspace((unsigned char)ptr[i])) {
-					if (!last_was_space && offset > 0 && pending_command[offset - 1] != ' ') {
-						pending_command[offset++] = ' ';
+					if (!last_was_space && offset > 0 && pending.command[offset - 1] != ' ') {
+						pending.command[offset++] = ' ';
 						last_was_space = true;
 					}
 				} else {
-					pending_command[offset++] = ptr[i];
+					pending.command[offset++] = ptr[i];
 					last_was_space = false;
 				}
 			}
-			pending_command[offset] = '\0';
+			pending.command[offset] = '\0';
 		}
 	}
 
-	if (pending_hotkey[0] != '\0') {
-		snprintf(hotkey, sizeof(hotkey), "%s", pending_hotkey);
-		snprintf(command, sizeof(command), "%s", pending_command);
-		parse_hotkey_line(hotkey, command);
-	}
+	flush_pending_bind(&pending);
 
 	current_parsing_submap = NULL;
 
@@ -1514,9 +1494,10 @@ const char *bind_action_name(bind_action_t action) {
 		"interactive_resize",
 		"tiling_drag",
 		"external",
-		"restore_minimized",
-		"portal_shortcut"
+		"restore_minimized"
 	};
+	_Static_assert(sizeof(names) / sizeof(names[0]) == BIND_ACTION_COUNT,
+		"bind_action_name() must have exactly one name per bind_action_t value");
 	if (action >= 0 && action < (int)(sizeof(names) / sizeof(names[0])))
 		return names[action];
 

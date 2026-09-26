@@ -269,15 +269,28 @@ static void draw_quad_scissored(const pixman_box32_t *scissor, int n_scissor, in
 	}
 }
 
-static void blur_pass(GLuint src_tex, GLuint dst_fbo, int w, int h, int pass_index,
-		struct be_blur_params *p, const pixman_box32_t *scissor, int n_scissor) {
+static void gles2_draw_begin(GLuint dst_fbo, GLuint src_tex, GLenum target, GLuint prog,
+		GLint tex_uniform, int w, int h) {
 	glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
 	glViewport(0, 0, w, h);
 	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, src_tex);
+	glBindTexture(target, src_tex);
+	glUseProgram(prog);
+	if (tex_uniform >= 0)
+		glUniform1i(tex_uniform, 0);
+}
 
-	glUseProgram(g->prog_kawase);
-	glUniform1i(g->u_kawase.tex, 0);
+static void gles2_draw_end(int h, const pixman_box32_t *scissor, int n_scissor, bool flush) {
+	draw_quad_scissored(scissor, n_scissor, h);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	if (flush)
+		glFlush();
+}
+
+static void blur_pass(GLuint src_tex, GLuint dst_fbo, int w, int h, int pass_index,
+		struct be_blur_params *p, const pixman_box32_t *scissor, int n_scissor) {
+	gles2_draw_begin(dst_fbo, src_tex, GL_TEXTURE_2D, g->prog_kawase, g->u_kawase.tex, w, h);
+
 	glUniform2f(g->u_kawase.halfpixel, 0.5f / (float)w, 0.5f / (float)h);
 	glUniform1f(g->u_kawase.offset, p->radius * (float)(pass_index + 1));
 	if (g->u_kawase.noise_strength >= 0)
@@ -291,20 +304,12 @@ static void blur_pass(GLuint src_tex, GLuint dst_fbo, int w, int h, int pass_ind
 	if (g->u_kawase.contrast >= 0)
 		glUniform1f(g->u_kawase.contrast, p->contrast);
 
-	draw_quad_scissored(scissor, n_scissor, h);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glFlush();
+	gles2_draw_end(h, scissor, n_scissor, true);
 }
 
 static void refraction_pass(GLuint src_tex, GLuint dst_fbo, int w, int h, struct be_blur_params *p,
 		int refraction_mode, const pixman_box32_t *scissor, int n_scissor) {
-	glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, src_tex);
-
-	glUseProgram(g->prog_refraction);
-	glUniform1i(g->u_refraction.tex, 0);
+	gles2_draw_begin(dst_fbo, src_tex, GL_TEXTURE_2D, g->prog_refraction, g->u_refraction.tex, w, h);
 
 	if (g->u_refraction.offset >= 0)
 		glUniform1f(g->u_refraction.offset, p->refraction_offset);
@@ -356,18 +361,12 @@ static void refraction_pass(GLuint src_tex, GLuint dst_fbo, int w, int h, struct
 	if (g->u_refraction.refraction_mode >= 0)
 		glUniform1i(g->u_refraction.refraction_mode, refraction_mode);
 
-	draw_quad_scissored(scissor, n_scissor, h);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	gles2_draw_end(h, scissor, n_scissor, false);
 }
 
 static void box_pass_dir(GLuint prog, GLuint src_tex, GLuint dst_fbo, int w, int h,
 		struct be_blur_params *p, const pixman_box32_t *scissor, int n_scissor) {
-	glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, src_tex);
-	glUseProgram(prog);
-	glUniform1i(g->u_box.tex, 0);
+	gles2_draw_begin(dst_fbo, src_tex, GL_TEXTURE_2D, prog, g->u_box.tex, w, h);
 	glUniform2f(g->u_box.texel_size, 1.0f / w, 1.0f / h);
 	glUniform1f(g->u_box.radius, p->radius);
 	if (g->u_box.vibrancy >= 0)
@@ -378,9 +377,7 @@ static void box_pass_dir(GLuint prog, GLuint src_tex, GLuint dst_fbo, int w, int
 		glUniform1f(g->u_box.brightness, p->brightness);
 	if (g->u_box.contrast >= 0)
 		glUniform1f(g->u_box.contrast, p->contrast);
-	draw_quad_scissored(scissor, n_scissor, h);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glFlush();
+	gles2_draw_end(h, scissor, n_scissor, true);
 }
 
 static void box_pass(GLuint src_tex, GLuint ping_fbo, GLuint ping_tex, GLuint pong_fbo, int w, int h,
@@ -391,12 +388,7 @@ static void box_pass(GLuint src_tex, GLuint ping_fbo, GLuint ping_tex, GLuint po
 
 static void gaussian_pass_dir(GLuint prog, GLuint src_tex, GLuint dst_fbo, int w, int h,
 		struct be_blur_params *p, const pixman_box32_t *scissor, int n_scissor) {
-	glBindFramebuffer(GL_FRAMEBUFFER, dst_fbo);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, src_tex);
-	glUseProgram(prog);
-	glUniform1i(g->u_gauss.tex, 0);
+	gles2_draw_begin(dst_fbo, src_tex, GL_TEXTURE_2D, prog, g->u_gauss.tex, w, h);
 	glUniform2f(g->u_gauss.texel_size, 1.0f / w, 1.0f / h);
 	glUniform1f(g->u_gauss.radius, p->radius);
 	if (g->u_gauss.vibrancy >= 0)
@@ -407,9 +399,7 @@ static void gaussian_pass_dir(GLuint prog, GLuint src_tex, GLuint dst_fbo, int w
 		glUniform1f(g->u_gauss.brightness, p->brightness);
 	if (g->u_gauss.contrast >= 0)
 		glUniform1f(g->u_gauss.contrast, p->contrast);
-	draw_quad_scissored(scissor, n_scissor, h);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glFlush();
+	gles2_draw_end(h, scissor, n_scissor, true);
 }
 
 static void gaussian_pass(GLuint src_tex, GLuint ping_fbo, GLuint ping_tex, GLuint pong_fbo, int w,
@@ -716,60 +706,9 @@ static void gles2_output_fini(be_output_state_t *state) {
 
 static void gles2_output_resize(be_output_state_t *state, int width, int height, int blur_w,
 		int blur_h) {
-	egl_make_current();
-	destroy_fbo((GLuint *)&state->capture.native_handle[0],
-		(GLuint *)&state->capture.native_handle[1]);
-	destroy_fbo((GLuint *)&state->combined_capture.native_handle[0],
-		(GLuint *)&state->combined_capture.native_handle[1]);
-	destroy_fbo((GLuint *)&state->ping.native_handle[0], (GLuint *)&state->ping.native_handle[1]);
-	destroy_fbo((GLuint *)&state->pong.native_handle[0], (GLuint *)&state->pong.native_handle[1]);
-	destroy_fbo((GLuint *)&state->blur_scratch.native_handle[0],
-		(GLuint *)&state->blur_scratch.native_handle[1]);
-	destroy_fbo((GLuint *)&state->screen_shader.native_handle[0],
-		(GLuint *)&state->screen_shader.native_handle[1]);
-	destroy_fbo((GLuint *)&state->staging.native_handle[0],
-		(GLuint *)&state->staging.native_handle[1]);
-	gles2_destroy_blur_levels(state);
-	memset(&state->capture, 0, sizeof(state->capture));
-	memset(&state->combined_capture, 0, sizeof(state->combined_capture));
-	create_fbo(blur_w, blur_h, (GLuint *)&state->capture.native_handle[0],
-		(GLuint *)&state->capture.native_handle[1]);
-	create_fbo(blur_w, blur_h, (GLuint *)&state->combined_capture.native_handle[0],
-		(GLuint *)&state->combined_capture.native_handle[1]);
-	create_fbo(blur_w, blur_h, (GLuint *)&state->ping.native_handle[0],
-		(GLuint *)&state->ping.native_handle[1]);
-	create_fbo(blur_w, blur_h, (GLuint *)&state->pong.native_handle[0],
-		(GLuint *)&state->pong.native_handle[1]);
-	create_fbo(blur_w, blur_h, (GLuint *)&state->blur_scratch.native_handle[0],
-		(GLuint *)&state->blur_scratch.native_handle[1]);
-	state->capture.width = blur_w;
-	state->capture.height = blur_h;
-	state->capture.state = BE_RESOURCE_SHADER_READ;
-	state->capture.owned = true;
-	state->combined_capture.width = blur_w;
-	state->combined_capture.height = blur_h;
-	state->combined_capture.state = BE_RESOURCE_SHADER_READ;
-	state->combined_capture.owned = true;
-	state->ping.width = blur_w;
-	state->ping.height = blur_h;
-	state->pong.width = blur_w;
-	state->pong.height = blur_h;
-	state->blur_scratch.width = blur_w;
-	state->blur_scratch.height = blur_h;
-	state->blur_scratch.state = BE_RESOURCE_SHADER_READ;
-
-	create_fbo(width, height, (GLuint *)&state->staging.native_handle[0],
-		(GLuint *)&state->staging.native_handle[1]);
-	state->staging.width = width;
-	state->staging.height = height;
-
-	if (!create_fbo(width, height, (GLuint *)&state->screen_shader.native_handle[0],
-		(GLuint *)&state->screen_shader.native_handle[1]))
-		wlr_log(WLR_ERROR, "gles2: screen shader FBO resize failed (non-fatal)");
-	state->screen_shader.width = width;
-	state->screen_shader.height = height;
-
-	egl_unset_current();
+	gles2_output_fini(state);
+	if (!gles2_output_init(state, width, height, blur_w, blur_h))
+		wlr_log(WLR_ERROR, "gles2: output resize FBO creation failed (non-fatal)");
 }
 
 static bool gles2_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w, int h,
@@ -846,27 +785,9 @@ static bool gles2_blit(be_effect_resource_t src, be_effect_resource_t dst, int w
 	}
 	wlr_log(WLR_DEBUG, "gles2_blit: src tex=%lu, dst fbo=%lu, %dx%d", (unsigned long)src.handle,
 		(unsigned long)dst.handle, w, h);
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)dst.handle);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, (GLuint)src.handle);
-	glUseProgram(g->prog_blit);
-	glUniform1i(g->u_blit.tex, 0);
-
-	if (n_scissor > 0 && scissor) {
-		glEnable(GL_SCISSOR_TEST);
-		for (int i = 0; i < n_scissor; i++) {
-			glScissor(scissor[i].x1, h - scissor[i].y2, scissor[i].x2 - scissor[i].x1,
-				scissor[i].y2 - scissor[i].y1);
-			draw_quad();
-		}
-		glDisable(GL_SCISSOR_TEST);
-	} else {
-		draw_quad();
-	}
-
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
-	glFlush();
+	gles2_draw_begin((GLuint)dst.handle, (GLuint)src.handle, GL_TEXTURE_2D, g->prog_blit, g->u_blit.tex,
+		w, h);
+	gles2_draw_end(h, scissor, n_scissor, true);
 	return true;
 }
 
@@ -916,15 +837,10 @@ static bool gles2_blur(be_output_state_t *state, be_effect_resource_t src, int s
 			lw[i] = dw;
 			lh[i] = dh;
 
-			glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-			glViewport(0, 0, dw, dh);
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, cur_tex);
-			glUseProgram(g->prog_blur_down);
-			glUniform1i(g->u_blur_down.tex, 0);
+			gles2_draw_begin(fbo, cur_tex, GL_TEXTURE_2D, g->prog_blur_down, g->u_blur_down.tex, dw, dh);
 			glUniform2f(g->u_blur_down.halfpixel, 0.5f / dw, 0.5f / dh);
 			glUniform1f(g->u_blur_down.offset, p->offset);
-			draw_quad();
+			gles2_draw_end(dh, NULL, 0, false);
 
 			cur_tex = level_tex[i];
 			cur_w = dw;
@@ -938,12 +854,7 @@ static bool gles2_blur(be_output_state_t *state, be_effect_resource_t src, int s
 			GLuint target = final ? (dst.valid ? (GLuint)dst.handle :
 				(GLuint)state->blur_scratch.native_handle[0]) : level_fbo[i - 1];
 
-			glBindFramebuffer(GL_FRAMEBUFFER, target);
-			glViewport(0, 0, uw, uh);
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, cur_tex);
-			glUseProgram(g->prog_blur_up);
-			glUniform1i(g->u_blur_up.tex, 0);
+			gles2_draw_begin(target, cur_tex, GL_TEXTURE_2D, g->prog_blur_up, g->u_blur_up.tex, uw, uh);
 			glUniform2f(g->u_blur_up.halfpixel, 0.5f / lw[i], 0.5f / lh[i]);
 			glUniform1f(g->u_blur_up.offset, p->offset);
 			glUniform1f(g->u_blur_up.adjust, final ? 1.0f : 0.0f);
@@ -953,7 +864,7 @@ static bool gles2_blur(be_output_state_t *state, be_effect_resource_t src, int s
 			glUniform1f(g->u_blur_up.vibrancy_darkness, p->vibrancy_darkness);
 			glUniform1f(g->u_blur_up.brightness, p->brightness);
 			glUniform1f(g->u_blur_up.contrast, p->contrast);
-			draw_quad();
+			gles2_draw_end(uh, NULL, 0, false);
 
 			if (final)
 				cur_tex = dst.valid ? 0 : (GLuint)state->blur_scratch.native_handle[1];
@@ -1055,19 +966,14 @@ static bool gles2_apply_mica_tint(be_output_state_t *state, be_effect_resource_t
 	(void)state;
 	if (!dst.valid || !dst.handle)
 		return false;
-	int w = dst.width, h = dst.height;
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)dst.handle);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
 	if (!bg.valid || !bg.handle)
 		return false;
-	glBindTexture(GL_TEXTURE_2D, (GLuint)bg.handle);
-	glUseProgram(g->prog_mica_tint);
-	glUniform1i(g->u_mica.tex, 0);
+	int w = dst.width, h = dst.height;
+	gles2_draw_begin((GLuint)dst.handle, (GLuint)bg.handle, GL_TEXTURE_2D, g->prog_mica_tint,
+		g->u_mica.tex, w, h);
 	glUniform4fv(g->u_mica.tint, 1, tint);
 	glUniform1f(g->u_mica.tint_strength, tint_strength);
-	draw_quad();
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	gles2_draw_end(h, NULL, 0, false);
 	return true;
 }
 
@@ -1077,8 +983,6 @@ static bool gles2_apply_acrylic(be_output_state_t *state, be_effect_resource_t b
 		return false;
 	uint64_t dst_fbo = dst.handle;
 	int w = dst.width, h = dst.height;
-	if (!bg.valid || !bg.handle)
-		return false;
 	GLuint blurred = (GLuint)bg.handle;
 	int blur_w = state->ping.width > 0 ? state->ping.width : w;
 	int blur_h = state->ping.height > 0 ? state->ping.height : h;
@@ -1105,19 +1009,14 @@ static bool gles2_apply_acrylic(be_output_state_t *state, be_effect_resource_t b
 		blurred = current;
 	}
 
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)dst_fbo);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, blurred);
-	glUseProgram(g->prog_acrylic_tint);
-	glUniform1i(g->u_acrylic.tex, 0);
+	gles2_draw_begin((GLuint)dst_fbo, blurred, GL_TEXTURE_2D, g->prog_acrylic_tint, g->u_acrylic.tex, w,
+		h);
 	glUniform4fv(g->u_acrylic.tint, 1, p->tint);
 	glUniform1f(g->u_acrylic.tint_strength, p->tint_strength);
 	glUniform1f(g->u_acrylic.noise_strength, p->noise_strength);
 	glUniform2f(g->u_acrylic.resolution, p->res_w, p->res_h);
 	glUniform2f(g->u_acrylic.light_anchor, p->light_anchor_x, p->light_anchor_y);
-	draw_quad();
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	gles2_draw_end(h, NULL, 0, false);
 	return true;
 }
 
@@ -1185,32 +1084,27 @@ static bool gles2_apply_corner_mask(be_output_state_t *state, be_effect_resource
 	(void)state;
 	if (!dst.valid || !dst.handle || !bg.valid || !bg.handle)
 		return false;
-	uint64_t dst_fbo = dst.handle;
-	int dst_w = dst.width, dst_h = dst.height;
-	if (!bg.valid || !bg.handle)
-		return false;
 	if (!g->prog_corner_mask)
 		return false;
 
-	if (!bg.valid || !bg.handle)
-		return false;
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)dst_fbo);
-	glViewport(0, 0, dst_w, dst_h);
+	uint64_t dst_fbo = dst.handle;
+	int dst_w = dst.width, dst_h = dst.height;
 
 	if (p->pre_blit) {
 		glEnable(GL_BLEND);
 		glBlendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
 	} else {
 		glDisable(GL_BLEND);
+	}
+
+	gles2_draw_begin((GLuint)dst_fbo, (GLuint)bg.handle, GL_TEXTURE_2D, g->prog_corner_mask,
+		g->u_corner_mask.tex, dst_w, dst_h);
+
+	if (!p->pre_blit) {
 		glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 	}
 
-	glActiveTexture(GL_TEXTURE0);
-	if (!bg.valid || !bg.handle)
-		return false;
-	glBindTexture(GL_TEXTURE_2D, (GLuint)bg.handle);
-	glUseProgram(g->prog_corner_mask);
 	glUniform1i(g->u_corner_mask.tex, 0);
 	glUniform2f(g->u_corner_mask.win_pos_uv, p->win_u, p->win_v);
 	glUniform2f(g->u_corner_mask.win_size_uv, p->win_sw, p->win_sh);
@@ -1219,11 +1113,10 @@ static bool gles2_apply_corner_mask(be_output_state_t *state, be_effect_resource
 	glUniform1f(g->u_corner_mask.scale, p->scale);
 	glUniform2f(g->u_corner_mask.bg_pos_uv, p->bg_u, p->bg_v);
 	glUniform2f(g->u_corner_mask.bg_size_uv, p->bg_sw, p->bg_sh);
-	draw_quad();
+	gles2_draw_end(dst_h, NULL, 0, false);
 
 	if (p->pre_blit)
 		glDisable(GL_BLEND);
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	return true;
 }
 
@@ -1232,21 +1125,15 @@ static bool gles2_apply_screen_shader(be_effect_resource_t src, be_effect_resour
 	if (!g->screen_shader_prog || !be_resource_readable(&src) || !be_resource_valid(&dst))
 		return false;
 
-	glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)dst.handle);
-	glViewport(0, 0, w, h);
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, (GLuint)src.handle);
-	glUseProgram(g->screen_shader_prog);
+	gles2_draw_begin((GLuint)dst.handle, (GLuint)src.handle, GL_TEXTURE_2D, g->screen_shader_prog,
+		g->screen_shader_u_tex, w, h);
 
-	if (g->screen_shader_u_tex >= 0)
-		glUniform1i(g->screen_shader_u_tex, 0);
 	if (g->screen_shader_u_resolution >= 0)
 		glUniform2f(g->screen_shader_u_resolution, (float)w * p->scale, (float)h * p->scale);
 	if (g->screen_shader_u_time >= 0)
 		glUniform1f(g->screen_shader_u_time, p->time);
 
-	draw_quad();
-	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	gles2_draw_end(h, NULL, 0, false);
 	return true;
 }
 

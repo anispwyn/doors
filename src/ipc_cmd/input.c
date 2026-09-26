@@ -93,4 +93,5 @@ void ipc_cmd_input(char **args, int num, int client_fd) {
 
 	input_apply_config_all_pointers();
 	input_apply_config_all_keyboards();
+	send_success(client_fd, "input: ok\n");
 }

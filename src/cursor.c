@@ -748,10 +748,11 @@ static uint32_t edges_from_cursor(const struct wlr_box *rect, uint32_t allowed_e
 		{WLR_EDGE_BOTTOM, (wy + wh) - cy},
 	};
 
-	for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++)
+	for (size_t i = 0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {
 		if ((candidates[i].edge & allowed_edges) && candidates[i].dist < min_dist) {
 			min_dist = candidates[i].dist;
-		nearest = candidates[i].edge;
+			nearest = candidates[i].edge;
+		}
 	}
 
 	return nearest;

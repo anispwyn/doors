@@ -51,13 +51,6 @@ doorsctl config window_gap <pixels>
 Sets the gap between windows.
 
 ```
-doorsctl config single_monocle true|false
-```
-
-When true, monocle layout shows only the focused window regardless of how many
-windows are on the desktop.
-
-```
 doorsctl config borderless_monocle true|false
 ```
 
@@ -922,8 +915,7 @@ doorsctl query ... --names             # Output names instead of IDs
 
 ```
 doorsctl config border_width [<n>]    # Get or set border width
-doorsctl config window_gap [<n>]     	# Get or set window gap
-doorsctl config single_monocle [true|false]
+doorsctl config window_gap [<n>]      	# Get or set window gap
 doorsctl config borderless_monocle [true|false]
 doorsctl config borderless_singleton [true|false]
 doorsctl config smart_gaps [true|false]

@@ -2,8 +2,51 @@
 #include "ipc_cmd.h"
 #include "ipc_helpers.h"
 #include "rule.h"
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+
+static const struct {
+	const char *key;
+	unsigned flag;
+} rule_flag_names[] = {
+	{"follow", RULE_TYPE_FOLLOW},
+	{"focus", RULE_TYPE_FOCUS},
+	{"manage", RULE_TYPE_MANAGE},
+	{"locked", RULE_TYPE_LOCKED},
+	{"hidden", RULE_TYPE_HIDDEN},
+	{"maximized", RULE_TYPE_MAXIMIZED},
+	{"minimized", RULE_TYPE_MINIMIZED},
+	{"sticky", RULE_TYPE_STICKY},
+	{"blur", RULE_TYPE_BLUR},
+	{"mica", RULE_TYPE_MICA},
+	{"acrylic", RULE_TYPE_ACRYLIC},
+	{"shadow", RULE_TYPE_SHADOW},
+	{"block_out_from_screenshare", RULE_TYPE_BLOCK_OUT_FROM_SCREENSHARE},
+	{"allow_tearing", RULE_TYPE_ALLOW_TEARING},
+	{"shortcuts_inhibitor", RULE_TYPE_SHORTCUTS_INHIBITOR},
+	{"animations_disable", RULE_TYPE_ANIM_DISABLE},
+};
+
+static bool rule_flag_apply(rule_t *r, const char *arg) {
+	for (size_t i = 0; i < sizeof(rule_flag_names) / sizeof(rule_flag_names[0]); i++) {
+		size_t klen = strlen(rule_flag_names[i].key);
+		if (strncmp(arg, rule_flag_names[i].key, klen) != 0 || arg[klen] != '=')
+			continue;
+		const char *val = arg + klen + 1;
+		if (streq(val, "on")) {
+			r->consequence.flags |= rule_flag_names[i].flag;
+			r->consequence.has |= rule_flag_names[i].flag;
+		} else if (streq(val, "off")) {
+			r->consequence.flags &= ~rule_flag_names[i].flag;
+			r->consequence.has |= rule_flag_names[i].flag;
+		} else {
+			return false;
+		}
+		return true;
+	}
+	return false;
+}
 
 void ipc_cmd_rule(char **args, int num, int client_fd) {
 	if (num < 1) {
@@ -36,7 +79,9 @@ void ipc_cmd_rule(char **args, int num, int client_fd) {
 		while (num > 0) {
 			char *arg = *args;
 
-			if (strncmp(arg, "title=", 6) == 0) {
+			if (rule_flag_apply(r, arg)) {
+				// handled in function
+			} else if (strncmp(arg, "title=", 6) == 0) {
 				title = arg + 6;
 				strncpy(r->match.title, title, MAXLEN - 1);
 				r->match.title[MAXLEN - 1] = '\0';
@@ -68,54 +113,6 @@ void ipc_cmd_rule(char **args, int num, int client_fd) {
 				strncpy(r->consequence.desktop, desk, SMALEN - 1);
 				r->consequence.desktop[SMALEN - 1] = '\0';
 				r->consequence.has |= RULE_TYPE_DESKTOP;
-			} else if (streq("follow=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_FOLLOW;
-				r->consequence.has |= RULE_TYPE_FOLLOW;
-			} else if (streq("follow=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_FOLLOW;
-				r->consequence.has |= RULE_TYPE_FOLLOW;
-			} else if (streq("focus=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_FOCUS;
-				r->consequence.has |= RULE_TYPE_FOCUS;
-			} else if (streq("focus=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_FOCUS;
-				r->consequence.has |= RULE_TYPE_FOCUS;
-			} else if (streq("manage=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_MANAGE;
-				r->consequence.has |= RULE_TYPE_MANAGE;
-			} else if (streq("manage=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_MANAGE;
-				r->consequence.has |= RULE_TYPE_MANAGE;
-			} else if (streq("locked=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_LOCKED;
-				r->consequence.has |= RULE_TYPE_LOCKED;
-			} else if (streq("locked=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_LOCKED;
-				r->consequence.has |= RULE_TYPE_LOCKED;
-			} else if (streq("hidden=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_HIDDEN;
-				r->consequence.has |= RULE_TYPE_HIDDEN;
-			} else if (streq("hidden=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_HIDDEN;
-				r->consequence.has |= RULE_TYPE_HIDDEN;
-			} else if (streq("maximized=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_MAXIMIZED;
-				r->consequence.has |= RULE_TYPE_MAXIMIZED;
-			} else if (streq("maximized=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_MAXIMIZED;
-				r->consequence.has |= RULE_TYPE_MAXIMIZED;
-			} else if (streq("minimized=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_MINIMIZED;
-				r->consequence.has |= RULE_TYPE_MINIMIZED;
-			} else if (streq("minimized=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_MINIMIZED;
-				r->consequence.has |= RULE_TYPE_MINIMIZED;
-			} else if (streq("sticky=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_STICKY;
-				r->consequence.has |= RULE_TYPE_STICKY;
-			} else if (streq("sticky=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_STICKY;
-				r->consequence.has |= RULE_TYPE_STICKY;
 			} else if (streq("one_shot", arg)) {
 				r->match.one_shot = true;
 			} else if (strncmp(arg, "scroller_proportion=", 20) == 0) {
@@ -136,57 +133,9 @@ void ipc_cmd_rule(char **args, int num, int client_fd) {
 					send_failure(client_fd, "scroller_proportion_single must be between 0.0 and 1.0");
 					return;
 				}
-			} else if (streq("blur=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_BLUR;
-				r->consequence.has |= RULE_TYPE_BLUR;
-			} else if (streq("blur=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_BLUR;
-				r->consequence.has |= RULE_TYPE_BLUR;
-			} else if (streq("mica=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_MICA;
-				r->consequence.has |= RULE_TYPE_MICA;
-			} else if (streq("mica=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_MICA;
-				r->consequence.has |= RULE_TYPE_MICA;
-			} else if (streq("acrylic=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_ACRYLIC;
-				r->consequence.has |= RULE_TYPE_ACRYLIC;
-			} else if (streq("acrylic=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_ACRYLIC;
-				r->consequence.has |= RULE_TYPE_ACRYLIC;
 			} else if (strncmp("border_radius=", arg, 14) == 0) {
 				r->consequence.border_radius = atof(arg + 14);
 				r->consequence.has |= RULE_TYPE_BORDER_RADIUS;
-			} else if (streq("shadow=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_SHADOW;
-				r->consequence.has |= RULE_TYPE_SHADOW;
-			} else if (streq("shadow=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_SHADOW;
-				r->consequence.has |= RULE_TYPE_SHADOW;
-			} else if (streq("block_out_from_screenshare=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_BLOCK_OUT_FROM_SCREENSHARE;
-				r->consequence.has |= RULE_TYPE_BLOCK_OUT_FROM_SCREENSHARE;
-			} else if (streq("block_out_from_screenshare=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_BLOCK_OUT_FROM_SCREENSHARE;
-				r->consequence.has |= RULE_TYPE_BLOCK_OUT_FROM_SCREENSHARE;
-			} else if (streq("allow_tearing=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_ALLOW_TEARING;
-				r->consequence.has |= RULE_TYPE_ALLOW_TEARING;
-			} else if (streq("allow_tearing=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_ALLOW_TEARING;
-				r->consequence.has |= RULE_TYPE_ALLOW_TEARING;
-			} else if (streq("shortcuts_inhibitor=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_SHORTCUTS_INHIBITOR;
-				r->consequence.has |= RULE_TYPE_SHORTCUTS_INHIBITOR;
-			} else if (streq("shortcuts_inhibitor=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_SHORTCUTS_INHIBITOR;
-				r->consequence.has |= RULE_TYPE_SHORTCUTS_INHIBITOR;
-			} else if (streq("animations_disable=on", arg)) {
-				r->consequence.flags |= RULE_TYPE_ANIM_DISABLE;
-				r->consequence.has |= RULE_TYPE_ANIM_DISABLE;
-			} else if (streq("animations_disable=off", arg)) {
-				r->consequence.flags &= ~RULE_TYPE_ANIM_DISABLE;
-				r->consequence.has |= RULE_TYPE_ANIM_DISABLE;
 			} else if (strncmp("render_unfocused_fps=", arg, 21) == 0) {
 				int val = atoi(arg + 21);
 				if (val >= 0 && val <= 1000) {

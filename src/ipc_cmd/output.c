@@ -482,6 +482,10 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 		focus_node(mon, mon->desk, mon->desk ? mon->desk->focus : NULL);
 		send_success(client_fd, "focused\n");
 	} else if (streq("rename", subcmd) || streq("-n", subcmd) || streq("--rename", subcmd)) {
+		if (!mon) {
+			send_failure(client_fd, "output rename: no such output\n");
+			return;
+		}
 		if (num < 2) {
 			send_failure(client_fd, "output rename: missing name argument\n");
 			return;
@@ -494,6 +498,10 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 		send_success(client_fd, "renamed\n");
 	} else if (streq("add-desktops", subcmd) || streq("-a", subcmd) || streq("--add-desktops",
 			subcmd)) {
+		if (!mon) {
+			send_failure(client_fd, "output add-desktops: no such output\n");
+			return;
+		}
 		if (num < 2) {
 			send_failure(client_fd, "output add-desktops: missing desktop names\n");
 			return;
@@ -578,6 +586,10 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 			send_success(client_fd, "desktops reset\n");
 		}
 	} else if (streq("swap-desktops", subcmd) || streq("-s", subcmd) || streq("--swap", subcmd)) {
+		if (!mon) {
+			send_failure(client_fd, "output swap-desktops: no such output\n");
+			return;
+		}
 		if (num < 2) {
 			send_failure(client_fd, "output swap-desktops: missing target output\n");
 			return;
@@ -643,6 +655,10 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 		transaction_commit_dirty();
 		send_success(client_fd, "swapped\n");
 	} else if (streq("remove", subcmd) || streq("-r", subcmd) || streq("--remove", subcmd)) {
+		if (!mon) {
+			send_failure(client_fd, "output remove: no such output\n");
+			return;
+		}
 		if (wl_list_length(&mon_list) == 1) {
 			send_failure(client_fd, "output remove: cannot remove the only output\n");
 			return;
@@ -671,27 +687,13 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 		free(mon);
 		transaction_commit_dirty();
 		send_success(client_fd, "removed\n");
-	} else if (streq("adaptive_sync", subcmd)) {
-		if (num < 2) {
-			send_failure(client_fd, "output adaptive_sync: missing argument (on/off)\n");
-			return;
-		}
-		args++;
-		num--;
-
-		if (streq("on", *args) || streq("true", *args) || streq("1", *args)) {
-			oc->adaptive_sync = OUTPUT_CONFIG_ADAPTIVE_SYNC_ENABLED;
-		} else if (streq("off", *args) || streq("false", *args) || streq("0", *args)) {
-			oc->adaptive_sync = OUTPUT_CONFIG_ADAPTIVE_SYNC_DISABLED;
-		} else {
-			send_failure(client_fd, "output adaptive_sync: expected \"on\" or \"off\"\n");
-			return;
-		}
-		output_config_apply(oc);
-		send_success(client_fd, "adaptive_sync set\n");
 	} else if (streq("rectangle", subcmd) || streq("-g", subcmd) || streq("--rectangle", subcmd)) {
 		if (num < 2) {
 			send_failure(client_fd, "output rectangle: missing rectangle\n");
+			return;
+		}
+		if (!mon) {
+			send_failure(client_fd, "output rectangle: no such output\n");
 			return;
 		}
 		args++;
@@ -719,6 +721,10 @@ void ipc_cmd_output(char **args, int num, int client_fd) {
 			subcmd)) {
 		if (num < 2) {
 			send_failure(client_fd, "output reorder-desktops: missing desktop names\n");
+			return;
+		}
+		if (!mon) {
+			send_failure(client_fd, "output reorder-desktops: no such output\n");
 			return;
 		}
 		args++;

@@ -1,4 +1,5 @@
 #include "ipc_helpers.h"
+#include "server.h"
 #include "transaction.h"
 #include <stdbool.h>
 #include <stdio.h>
@@ -175,4 +176,27 @@ bool ipc_handle_float(char **args, int num, int client_fd, float *var, int flags
 	snprintf(buf, sizeof(buf), fmt, *var);
 	send_success(client_fd, buf);
 	return false;
+}
+
+node_t *ipc_focused_node(int client_fd, const char *ctx, output_t **mon, desktop_t **desk) {
+	output_t *m = server.focused_output;
+	desktop_t *d = m ? m->desk : NULL;
+	node_t *n = d ? d->focus : NULL;
+	if (mon)
+		*mon = m;
+	if (desk)
+		*desk = d;
+
+	char msg[128];
+	if (!d) {
+		snprintf(msg, sizeof(msg), "%s: no focused desktop\n", ctx);
+		send_failure(client_fd, msg);
+		return NULL;
+	}
+	if (!n) {
+		snprintf(msg, sizeof(msg), "%s: no focused node\n", ctx);
+		send_failure(client_fd, msg);
+		return NULL;
+	}
+	return n;
 }

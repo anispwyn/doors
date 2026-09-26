@@ -103,11 +103,12 @@ void ipc_cmd_wm(char **args, int num, int client_fd) {
 		}
 
 		struct output_config *oc = output_config_create(*args);
-		if (oc) {
-			send_success(client_fd, "monitor config added\n");
-		} else {
+		if (!oc) {
 			send_failure(client_fd, "wm -a: failed to add monitor\n");
+			return;
 		}
+		output_config_add(oc);
+		send_success(client_fd, "monitor config added\n");
 	} else if (streq("-O", *args) || streq("--reorder-monitors", *args)) {
 		if (num < 2) {
 			send_failure(client_fd, "wm -O: missing monitor list\n");

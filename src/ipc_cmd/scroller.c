@@ -45,7 +45,7 @@ void ipc_cmd_scroller(char **args, int num, int client_fd) {
 	desktop_t *desk = mon->desk;
 	scroller_state_t *s = desk->scroller_state;
 
-	if (streq("proportion", *args)) {
+	if (streq("proportion", *args) || streq("set_proportion", *args)) {
 		if (num < 2) {
 			send_failure(client_fd, "scroller proportion: missing value\n");
 			return;
@@ -115,28 +115,6 @@ void ipc_cmd_scroller(char **args, int num, int client_fd) {
 		s->columns[col].width.value = prop;
 		arrange(mon, desk, true);
 		send_success(client_fd, "resized\n");
-	} else if (streq("set_proportion", *args)) {
-		if (num < 2) {
-			send_failure(client_fd, "scroller set_proportion: missing value\n");
-			return;
-		}
-
-		int col;
-		if (!find_focused_tile(desk, &col, NULL)) {
-			send_failure(client_fd, "scroller set_proportion: no focused tiled window\n");
-			return;
-		}
-
-		float value = atof(args[1]);
-		if (value < 0.1f || value > 1.0f) {
-			send_failure(client_fd, "scroller set_proportion: value must be between 0.1 and 1.0\n");
-			return;
-		}
-
-		s->columns[col].width.type = SCROLLER_WIDTH_PROPORTION;
-		s->columns[col].width.value = (double)value;
-		arrange(mon, desk, true);
-		send_success(client_fd, "proportion set\n");
 	} else if (streq("cycle_preset", *args)) {
 		if (!scroller_proportion_preset || scroller_proportion_preset_count == 0) {
 			send_failure(client_fd, "scroller cycle_preset: no presets configured\n");

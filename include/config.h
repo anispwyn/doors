@@ -97,6 +97,9 @@ typedef enum {
 	BIND_RESTORE_MINIMIZED,
 } bind_action_t;
 
+// sync with names table in bind_action_name()
+#define BIND_ACTION_COUNT (BIND_RESTORE_MINIMIZED + 1)
+
 typedef enum {
 	KEYBOARD_GROUP_DEFAULT,
 	KEYBOARD_GROUP_NONE,
