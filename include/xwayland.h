@@ -33,6 +33,7 @@ typedef struct xwayland_t {
 
 typedef struct xwayland_toplevel_t {
 	node_t *node;
+	client_t *client;
 	struct wlr_xwayland_surface *xwayland_surface;
 	struct wlr_scene_tree *scene_tree;
 	struct wlr_scene_tree *content_tree;

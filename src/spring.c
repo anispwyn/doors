@@ -6,7 +6,6 @@
 #include <string.h>
 
 static struct wl_list springs;
-static const double TWO_PI = 6.283185307179586;
 
 spring_curve_t *spring_add(const char *name, double stiffness, double damping, double mass,
 		double value_epsilon, double velocity_epsilon) {
@@ -66,8 +65,14 @@ double spring_evaluate(const spring_curve_t *curve, double dt, double *position,
 	double dT = p - 1.0;
 
 	// frequency (rad/s) from stiffness and mass
-	double o = TWO_PI * sqrt(curve->stiffness / curve->mass) / TWO_PI;
-	double zeta = curve->damping / (2.0 * sqrt(curve->stiffness * curve->mass));
+	if (curve->mass <= 0.0 || curve->stiffness <= 0.0)
+		return *position;
+
+	double o = sqrt(curve->stiffness / curve->mass);
+	double denom = 2.0 * sqrt(curve->stiffness * curve->mass);
+	if (denom <= 0.0)
+		return *position;
+	double zeta = curve->damping / denom;
 
 	if (zeta < 1.0) {
 		// underdamped

@@ -185,6 +185,10 @@ void ipc_cmd_spring(char **args, int num, int client_fd) {
 	double stiffness = atof(args[1]);
 	double damping = atof(args[2]);
 	double mass = num >= 4 ? atof(args[3]) : 1.0;
+	if (stiffness <= 0.0 || mass <= 0.0) {
+		send_failure(client_fd, "spring: stiffness and mass must be > 0\n");
+		return;
+	}
 	double value_eps = num >= 5 ? atof(args[4]) : SPRING_EPSILON_DEFAULT;
 	double velocity_eps = num >= 6 ? atof(args[5]) : SPRING_EPSILON_DEFAULT;
 	if (spring_add(args[0], stiffness, damping, mass, value_eps, velocity_eps))

@@ -454,31 +454,27 @@ node_t *insert_node(desktop_t *d, node_t *n, node_t *f) {
 				p->second_child = c;
 		}
 
-		c->split_ratio = f->presel->split_ratio;
+		node_set_split_ratio(c, f->presel->split_ratio);
 		c->parent = p;
 		f->parent = c;
 
 		switch (f->presel->split_dir) {
 		case DIR_WEST:
-			c->split_type = TYPE_VERTICAL;
 			node_set_split_type(c, TYPE_VERTICAL);
 			c->first_child = n;
 			c->second_child = f;
 			break;
 		case DIR_EAST:
-			c->split_type = TYPE_VERTICAL;
 			node_set_split_type(c, TYPE_VERTICAL);
 			c->first_child = f;
 			c->second_child = n;
 			break;
 		case DIR_NORTH:
-			c->split_type = TYPE_HORIZONTAL;
 			node_set_split_type(c, TYPE_HORIZONTAL);
 			c->first_child = n;
 			c->second_child = f;
 			break;
 		case DIR_SOUTH:
-			c->split_type = TYPE_HORIZONTAL;
 			node_set_split_type(c, TYPE_HORIZONTAL);
 			c->first_child = f;
 			c->second_child = n;
@@ -578,7 +574,6 @@ void remove_node(desktop_t *d, node_t *n) {
 
 		// propagate TYPE_TABBED so remaining leaves stay tabbed
 		if (p->split_type == TYPE_TABBED && !is_leaf(b)) {
-			b->split_type = TYPE_TABBED;
 			node_set_split_type(b, TYPE_TABBED);
 		}
 
@@ -592,20 +587,16 @@ void remove_node(desktop_t *d, node_t *n) {
 			} else if (settings.automatic_scheme == SCHEME_LONGEST_SIDE || g == NULL) {
 				if (p != NULL && !is_leaf(b)) {
 					if (p->rectangle.width > p->rectangle.height) {
-						b->split_type = TYPE_VERTICAL;
 						node_set_split_type(b, TYPE_VERTICAL);
 					} else {
-						b->split_type = TYPE_HORIZONTAL;
 						node_set_split_type(b, TYPE_HORIZONTAL);
 					}
 				}
 			} else if (settings.automatic_scheme == SCHEME_ALTERNATE) {
 				if (g != NULL && !is_leaf(b)) {
 					if (g->split_type == TYPE_HORIZONTAL) {
-						b->split_type = TYPE_VERTICAL;
 						node_set_split_type(b, TYPE_VERTICAL);
 					} else {
-						b->split_type = TYPE_HORIZONTAL;
 						node_set_split_type(b, TYPE_HORIZONTAL);
 					}
 				}

@@ -128,11 +128,11 @@ void toplevel_apply_decoration_mode(struct toplevel_t *tl) {
 }
 
 static void update_ext_foreign_toplevel(toplevel_t *toplevel) {
-	if (!toplevel->ext_foreign_toplevel || !toplevel->node || !toplevel->node->client)
+	if (!toplevel->ext_foreign_toplevel || !toplevel->client)
 		return;
 
 	struct wlr_ext_foreign_toplevel_handle_v1_state state = {0};
-	client_t *c = toplevel->node->client;
+	client_t *c = toplevel->client;
 
 	if (c->title[0] != '\0')
 		state.title = c->title;
@@ -143,10 +143,10 @@ static void update_ext_foreign_toplevel(toplevel_t *toplevel) {
 }
 
 void update_foreign_toplevel_state(toplevel_t *toplevel) {
-	if (!toplevel->foreign_toplevel || !toplevel->node || !toplevel->node->client)
+	if (!toplevel->foreign_toplevel || !toplevel->client)
 		return;
 
-	client_t *c = toplevel->node->client;
+	client_t *c = toplevel->client;
 	bool maximized = client_reports_maximized(c, toplevel->node->desktop);
 	bool fullscreen = (c->state == STATE_FULLSCREEN);
 	bool minimized = c->flags.minimized;
@@ -160,7 +160,7 @@ static void handle_foreign_activate_request(struct wl_listener *listener, void *
 	(void)data;
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, foreign_activate_request);
 
-	if (!toplevel->node || !toplevel->node->client)
+	if (!toplevel->client)
 		return;
 
 	output_t *m = toplevel->node->output;
@@ -175,7 +175,7 @@ static void handle_foreign_activate_request(struct wl_listener *listener, void *
 		workspace_switch_to_desktop(toplevel_desk->name);
 
 	// activating a minimized window brings it back
-	if (toplevel->node->client->flags.minimized)
+	if (toplevel->client->flags.minimized)
 		client_set_minimized(m, toplevel_desk, toplevel->node, false);
 
 	if (toplevel_desk->focus == toplevel->node)
@@ -197,7 +197,7 @@ static void handle_foreign_fullscreen_request(struct wl_listener *listener, void
 	struct wlr_foreign_toplevel_handle_v1_fullscreen_event *event = data;
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, foreign_fullscreen_request);
 
-	if (toplevel->node == NULL || toplevel->node->client == NULL)
+	if (toplevel->client == NULL)
 		return;
 
 	output_t *m = toplevel->node->output;
@@ -262,10 +262,10 @@ static bool toplevel_output_handler_point_accepts_input(struct wlr_scene_buffer 
 }
 
 void toplevel_center_and_clip_surface(toplevel_t *toplevel) {
-	if (!toplevel || !toplevel->content_tree || !toplevel->node || !toplevel->node->client)
+	if (!toplevel || !toplevel->content_tree || !toplevel->client)
 		return;
 
-	client_t *c = toplevel->node->client;
+	client_t *c = toplevel->client;
 	bool floating = (c->state == STATE_FLOATING);
 	bool fullscreen = (c->state == STATE_FULLSCREEN);
 	bool tiled = IS_TILED(c);
@@ -465,6 +465,7 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 
 	// link client and toplevel
 	n->client->toplevel = toplevel;
+	toplevel->client = n->client;
 	toplevel->node = n;
 
 	// populate constraints from xdg_toplevel protocol state
@@ -750,7 +751,7 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 	if (toplevel->scene_tree && !animation_has_fade_out(toplevel->scene_tree))
 		wlr_scene_node_set_enabled(&toplevel->scene_tree->node, false);
 
-	if (settings.enable_animations && toplevel->node->client && toplevel->node->client->flags.shown)
+	if (settings.enable_animations && toplevel->client && toplevel->client->flags.shown)
 		toplevel_save_buffer(toplevel);
 
 	node_t *n = toplevel->node;
@@ -821,6 +822,7 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 		arrange(m, d, true);
 
 		toplevel->node = NULL;
+		toplevel->client = NULL;
 
 		// focus handling after removing node
 		if (d->layout == LAYOUT_SCROLLER) {
@@ -899,8 +901,8 @@ void toplevel_commit(struct wl_listener *listener, void *data) {
 			// update stored geometry
 			memcpy(&toplevel->geometry, new_geo, sizeof(struct wlr_box));
 
-			if (toplevel->node && toplevel->node->client) {
-				client_t *c = toplevel->node->client;
+			if (toplevel->client) {
+				client_t *c = toplevel->client;
 
 				if (c->state == STATE_FLOATING) {
 					if (c->floating_rectangle.width > 0) {
@@ -960,7 +962,7 @@ void toplevel_commit(struct wl_listener *listener, void *data) {
 	bool has_blur = blur_count(toplevel->blur) > 0;
 
 	// only update blur from protocol if it wasn't set by a rule
-	if (toplevel->node && toplevel->node->client && !toplevel->node->client->flags.blur_from_rule) {
+	if (toplevel->client && !toplevel->client->flags.blur_from_rule) {
 		if (wants_blur != has_blur)
 			toplevel_set_effect(toplevel, EFFECT_BLUR, wants_blur);
 		if (toplevel->blur && fx) {
@@ -972,8 +974,8 @@ void toplevel_commit(struct wl_listener *listener, void *data) {
 	}
 
 	// update opacity
-	if (toplevel->node && toplevel->node->client && !animation_is_opacity_fading(toplevel))
-		surface_set_opacity(&toplevel->scene_tree->node, toplevel->node->client->opacity);
+	if (toplevel->client && !animation_is_opacity_fading(toplevel))
+		surface_set_opacity(&toplevel->scene_tree->node, toplevel->client->opacity);
 
 	if (toplevel->node && toplevel->node->output)
 		output_schedule_frame(toplevel->node->output);
@@ -1011,11 +1013,12 @@ void toplevel_destroy(struct wl_listener *listener, void *data) {
 	}
 
 	client_t *client = NULL;
-	if (toplevel->node && toplevel->node->client) {
-		client = toplevel->node->client;
+	if (toplevel->client) {
+		client = toplevel->client;
 		animation_cancel_node(toplevel->node);
 		client->toplevel = NULL;
 		toplevel->node = NULL;
+		toplevel->client = NULL;
 	}
 
 	if (toplevel->capture_renderer) {
@@ -1133,7 +1136,7 @@ void toplevel_request_move(struct wl_listener *listener, void *data) {
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, request_move);
 	wlr_log(WLR_DEBUG, "Toplevel requested move");
 
-	if (toplevel->node && toplevel->node->client && toplevel->node->client->state == STATE_FLOATING)
+	if (toplevel->client && toplevel->client->state == STATE_FLOATING)
 		begin_interactive(toplevel, CURSOR_MOVE, 0);
 	else if (toplevel->xdg_toplevel->base->initialized)
 		wlr_xdg_surface_schedule_configure(toplevel->xdg_toplevel->base);
@@ -1144,10 +1147,10 @@ void toplevel_request_resize(struct wl_listener *listener, void *data) {
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, request_resize);
 	wlr_log(WLR_DEBUG, "Toplevel requested resize");
 
-	if (!event || !toplevel->node || !toplevel->node->client)
+	if (!event || !toplevel->client)
 		return;
 
-	if (toplevel->node->client->state == STATE_FLOATING)
+	if (toplevel->client->state == STATE_FLOATING)
 		begin_interactive(toplevel, CURSOR_RESIZE, event->edges);
 	else if (toplevel->xdg_toplevel->base->initialized)
 		wlr_xdg_surface_schedule_configure(toplevel->xdg_toplevel->base);
@@ -1172,13 +1175,13 @@ void toplevel_request_maximize(struct wl_listener *listener, void *data) {
 
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
-	if (toplevel->node == NULL || toplevel->node->client == NULL)
+	if (toplevel->client == NULL)
 		return;
-	if (toplevel->node->client->state == STATE_FULLSCREEN)
+	if (toplevel->client->state == STATE_FULLSCREEN)
 		return;
 
 	bool requested_maximized = toplevel->xdg_toplevel->requested.maximized;
-	if (requested_maximized == toplevel->node->client->flags.maximized)
+	if (requested_maximized == toplevel->client->flags.maximized)
 		return;
 
 	toplevel_handle_maximize(toplevel, requested_maximized);
@@ -1190,11 +1193,11 @@ void toplevel_request_fullscreen(struct wl_listener *listener, void *data) {
 
 	if (!toplevel->xdg_toplevel->base->initialized)
 		return;
-	if (toplevel->node == NULL || toplevel->node->client == NULL)
+	if (toplevel->client == NULL)
 		return;
 
 	bool requested_fullscreen = toplevel->xdg_toplevel->requested.fullscreen;
-	if (requested_fullscreen == (toplevel->node->client->state == STATE_FULLSCREEN))
+	if (requested_fullscreen == (toplevel->client->state == STATE_FULLSCREEN))
 		return;
 
 	output_t *m = toplevel->node->output;
@@ -1220,11 +1223,11 @@ void toplevel_set_title(struct wl_listener *listener, void *data) {
 	(void)data;
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, set_title);
 
-	if (toplevel->node && toplevel->node->client) {
+	if (toplevel->client) {
 		const char *title = toplevel->xdg_toplevel->title;
 		if (title) {
-			strncpy(toplevel->node->client->title, title, MAXLEN - 1);
-			toplevel->node->client->title[MAXLEN - 1] = '\0';
+			strncpy(toplevel->client->title, title, MAXLEN - 1);
+			toplevel->client->title[MAXLEN - 1] = '\0';
 			wlr_log(WLR_DEBUG, "Toplevel title changed: %s", title);
 		}
 
@@ -1237,7 +1240,7 @@ void toplevel_set_title(struct wl_listener *listener, void *data) {
 		tabs_update_label_for_leaf(toplevel->node);
 
 		ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,title]\n",
-			toplevel->node->client->app_id[0] ? toplevel->node->client->app_id : "?", title ? title : "?",
+			toplevel->client->app_id[0] ? toplevel->client->app_id : "?", title ? title : "?",
 			toplevel->node->id);
 	}
 }
@@ -1246,11 +1249,11 @@ void toplevel_set_app_id(struct wl_listener *listener, void *data) {
 	(void)data;
 	toplevel_t *toplevel = wl_container_of(listener, toplevel, set_app_id);
 
-	if (toplevel->node && toplevel->node->client) {
+	if (toplevel->client) {
 		const char *app_id = toplevel->xdg_toplevel->app_id;
 		if (app_id) {
-			strncpy(toplevel->node->client->app_id, app_id, MAXLEN - 1);
-			toplevel->node->client->app_id[MAXLEN - 1] = '\0';
+			strncpy(toplevel->client->app_id, app_id, MAXLEN - 1);
+			toplevel->client->app_id[MAXLEN - 1] = '\0';
 			wlr_log(WLR_DEBUG, "Toplevel app_id changed: %s", app_id);
 		}
 
@@ -1263,7 +1266,7 @@ void toplevel_set_app_id(struct wl_listener *listener, void *data) {
 		tabs_update_label_for_leaf(toplevel->node);
 
 		ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,app_id]\n", app_id ? app_id : "?",
-			toplevel->node->client->title[0] ? toplevel->node->client->title : "?", toplevel->node->id);
+			toplevel->client->title[0] ? toplevel->client->title : "?", toplevel->node->id);
 	}
 }
 
@@ -1449,9 +1452,8 @@ void toplevel_send_frame_done(struct toplevel_t *toplevel) {
 
 bool toplevel_can_tear(struct toplevel_t *toplevel) {
 	// per-window rule override takes precedence
-	if (toplevel->node && toplevel->node->client &&
-		toplevel->node->client->flags.allow_tearing_from_rule)
-		return toplevel->node->client->flags.allow_tearing;
+	if (toplevel->client && toplevel->client->flags.allow_tearing_from_rule)
+		return toplevel->client->flags.allow_tearing;
 
 	// explicit tearing hint from client
 	if (toplevel->tearing_hint == WP_TEARING_CONTROL_V1_PRESENTATION_HINT_ASYNC)

@@ -38,6 +38,7 @@ typedef struct toplevel_t {
 	struct wlr_scene_rect *border_rects[4];
 
 	node_t *node;
+	client_t *client;
 
 	struct wlr_box geometry, last_requested;
 
