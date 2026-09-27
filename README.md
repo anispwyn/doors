@@ -55,4 +55,4 @@ The **doorshkrc** is a config file for your hotkeys, and is reloaded on every sa
 
 If you would like to install as a package, an arch package is available on the AUR at [doors-git](https://aur.archlinux.org/packages/doors-git).
 
-There is also a nix flake maintained by [anispwn](https://github.com/anispwyn).
+There is also a nix flake maintained by [anispwyn](https://github.com/anispwyn).
