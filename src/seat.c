@@ -59,7 +59,7 @@ static void handle_start_drag(struct wl_listener *listener, void *data) {
 
 	struct wl_listener *listener_icon = calloc(1, sizeof(*listener_icon));
 	if (!listener_icon) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 	listener_icon->notify = handle_drag_icon_destroy;

@@ -68,8 +68,7 @@ bool transaction_notify_view_ready_by_serial(view_t *view, uint32_t serial);
  * This can be used as a fallback for clients that don't properly track serials.
  * Returns true if this instruction was found and marked ready.
  */
-bool transaction_notify_view_ready_by_geometry(view_t *view, int x, int y, int width,
-	int height);
+bool transaction_notify_view_ready_by_geometry(view_t *view, int x, int y, int width, int height);
 
 /**
  * Initialize the transaction system.

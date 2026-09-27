@@ -46,7 +46,7 @@ static const cmd_entry_t cmds[] = {
 };
 
 bool process_ipc_message(char *msg, int msg_len, int client_fd) {
-	wlr_log(WLR_DEBUG, "IPC: processing message: %.*s", msg_len, msg);
+	wlr_log(WLR_DEBUG, "Processing message: %.*s", msg_len, msg);
 	bool owns_client_fd = false;
 	int cap = 16;
 	int num = 0;

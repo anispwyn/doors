@@ -23,7 +23,7 @@ struct output_config *output_config_create(const char *name) {
 
 	oc->name = strdup(name);
 	if (!oc->name) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		free(oc);
 		return NULL;
 	}
@@ -117,7 +117,7 @@ void output_config_apply(struct output_config *oc) {
 	if (oc->enable == OUTPUT_CONFIG_DISABLE) {
 		wlr_output_state_set_enabled(&state, false);
 		if (!wlr_output_commit_state(wlr_output, &state))
-			wlr_log(WLR_ERROR, "output_config_apply: failed to commit state for %s", oc->name);
+			wlr_log(WLR_ERROR, "Failed to commit state for %s", oc->name);
 		wlr_output_state_finish(&state);
 		return;
 	}
@@ -207,7 +207,7 @@ void output_config_apply(struct output_config *oc) {
 	}
 
 	if (!wlr_output_commit_state(wlr_output, &state))
-		wlr_log(WLR_ERROR, "output_config_apply: failed to commit state for %s", oc->name);
+		wlr_log(WLR_ERROR, "Failed to commit state for %s", oc->name);
 	wlr_output_state_finish(&state);
 
 	if (oc->scale > 0 && output)
@@ -239,8 +239,7 @@ void output_config_apply(struct output_config *oc) {
 
 		if (commit_hdr) {
 			if (!wlr_output_commit_state(wlr_output, &hdr_state))
-				wlr_log(WLR_ERROR, "output_config_apply: failed to commit HDR image-description for %s",
-					oc->name);
+				wlr_log(WLR_ERROR, "Failed to commit HDR image-description for %s", oc->name);
 		}
 		wlr_output_state_finish(&hdr_state);
 	}

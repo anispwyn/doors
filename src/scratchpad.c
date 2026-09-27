@@ -164,14 +164,14 @@ void scratchpad_add(node_t *n) {
 	if (n == NULL || n->client == NULL || n->scratchpad)
 		return;
 
-	wlr_log(WLR_INFO, "scratchpad_add: node=%u app_id=%s state=%d", n->id,
+	wlr_log(WLR_INFO, "Node=%u app_id=%s state=%d", n->id,
 		n->client->app_id[0] ? n->client->app_id : "(none)", n->client->state);
 
 	scratchpad_entry_t *entry = scratchpad_find_entry(n);
 	if (entry == NULL) {
 		entry = calloc(1, sizeof(*entry));
 		if (entry == NULL) {
-			wlr_log(WLR_ERROR, "scratchpad_add: allocation failed");
+			wlr_log(WLR_ERROR, "Allocation failed");
 			return;
 		}
 		entry->node = n;
@@ -181,7 +181,7 @@ void scratchpad_add(node_t *n) {
 	scratchpad_park(n, entry);
 
 	transaction_commit_dirty();
-	wlr_log(WLR_INFO, "scratchpad_add: done, node=%u saved_state=%d", n->id, entry->saved_state);
+	wlr_log(WLR_INFO, "Done, node=%u saved_state=%d", n->id, entry->saved_state);
 }
 
 void scratchpad_remove(node_t *n) {
@@ -195,7 +195,7 @@ void scratchpad_remove(node_t *n) {
 	}
 
 	n->scratchpad = false;
-	wlr_log(WLR_INFO, "scratchpad_remove: node=%u removed from scratchpad", n->id);
+	wlr_log(WLR_INFO, "Node=%u removed from scratchpad", n->id);
 }
 
 void scratchpad_show(node_t *n) {
@@ -210,12 +210,12 @@ void scratchpad_show(node_t *n) {
 	output_t *m = NULL;
 	scratchpad_target(&d, &m, entry);
 	if (d == NULL) {
-		wlr_log(WLR_ERROR, "scratchpad_show: no desktop to show on");
+		wlr_log(WLR_ERROR, "No desktop to show on");
 		return;
 	}
 
-	wlr_log(WLR_INFO, "scratchpad_show: node=%u output=%s desktop=%s restoring state=%d", n->id,
-		m ? m->name : "(none)", d->name, entry->saved_state);
+	wlr_log(WLR_INFO, "Node=%u output=%s desktop=%s restoring state=%d", n->id, m ? m->name : "(none)",
+		d->name, entry->saved_state);
 
 	client_state_t saved_state = entry->saved_state;
 	bool saved_maximized = entry->saved_maximized;
@@ -285,7 +285,7 @@ void scratchpad_show(node_t *n) {
 	}
 
 	transaction_commit_dirty();
-	wlr_log(WLR_INFO, "scratchpad_show: done, node=%u shown on %s", n->id, d->name);
+	wlr_log(WLR_INFO, "Done, node=%u shown on %s", n->id, d->name);
 }
 
 void scratchpad_hide(node_t *n) {
@@ -294,11 +294,11 @@ void scratchpad_hide(node_t *n) {
 	if (!n->scratchpad && n->desktop == NULL)
 		return;
 
-	wlr_log(WLR_INFO, "scratchpad_hide: node=%u scratchpad=%d", n->id, n->scratchpad);
+	wlr_log(WLR_INFO, "Node=%u scratchpad=%d", n->id, n->scratchpad);
 
 	scratchpad_add(n);
 	transaction_commit_dirty();
-	wlr_log(WLR_INFO, "scratchpad_hide: done, node=%u hidden", n->id);
+	wlr_log(WLR_INFO, "Done, node=%u hidden", n->id);
 }
 
 void scratchpad_toggle(node_t *n) {
@@ -306,8 +306,7 @@ void scratchpad_toggle(node_t *n) {
 		return;
 
 	output_t *focused = server.focused_output;
-	wlr_log(WLR_INFO, "scratchpad_toggle: node=%u scratchpad=%d desktop=%p", n->id, n->scratchpad,
-		(void *)n->desktop);
+	wlr_log(WLR_INFO, "Node=%u scratchpad=%d desktop=%p", n->id, n->scratchpad, (void *)n->desktop);
 
 	if (n->scratchpad && n->desktop == NULL) {
 		scratchpad_show(n);
@@ -315,7 +314,7 @@ void scratchpad_toggle(node_t *n) {
 	}
 
 	if (focused == NULL) {
-		wlr_log(WLR_ERROR, "scratchpad_toggle: no focused output");
+		wlr_log(WLR_ERROR, "No focused output");
 		return;
 	}
 
@@ -357,7 +356,7 @@ void scratchpad_toggle_auto(void) {
 		}
 	}
 
-	wlr_log(WLR_DEBUG, "scratchpad_toggle_auto: no scratchpad entries to show");
+	wlr_log(WLR_DEBUG, "No scratchpad entries to show");
 }
 
 node_t *scratchpad_find_by_app_id(const char *app_id) {

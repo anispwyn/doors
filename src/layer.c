@@ -78,8 +78,7 @@ static void layer_surface_save_buffer(layer_surface_t *layer) {
 
 	wlr_scene_node_for_each_buffer(&layer->scene_tree->node, layer_surface_save_buffer_iterator,
 		layer->saved_tree);
-	wlr_log(WLR_DEBUG, "layer: save_buffer: saved_tree children=%d",
-		wl_list_length(&layer->saved_tree->children));
+	wlr_log(WLR_DEBUG, "Saved tree children=%d", wl_list_length(&layer->saved_tree->children));
 }
 
 static void layer_surface_destroy(struct wl_listener *listener, void *data) {
@@ -196,7 +195,8 @@ void handle_new_layer_surface(struct wl_listener *listener, void *data) {
 	if (!layer_surface->output) {
 		wlr_log(WLR_INFO, "Layer surface has no output, using focused_monitor");
 		if (!server.focused_output) {
-			wlr_log(WLR_ERROR, "No focused monitor, destroying layer surface");
+			wlr_log(WLR_ERROR, "No focused monitor, destroying layer surface on layer %d",
+				layer_surface->pending.layer);
 			wlr_layer_surface_v1_destroy(layer_surface);
 			return;
 		}
@@ -205,7 +205,8 @@ void handle_new_layer_surface(struct wl_listener *listener, void *data) {
 
 	output = layer_surface->output->data;
 	if (!output) {
-		wlr_log(WLR_ERROR, "No output data, destroying layer surface");
+		wlr_log(WLR_ERROR, "No output data, destroying layer surface on layer %d",
+			layer_surface->pending.layer);
 		wlr_layer_surface_v1_destroy(layer_surface);
 		return;
 	}

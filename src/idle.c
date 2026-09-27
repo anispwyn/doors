@@ -39,7 +39,7 @@ static void handle_new_idle_inhibitor(struct wl_listener *listener, void *data) 
 
 	idle_inhibitor_t *idle = calloc(1, sizeof(*idle));
 	if (!idle) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 	idle->idle_inhibitor = idle_inhibitor;

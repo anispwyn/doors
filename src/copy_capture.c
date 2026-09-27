@@ -100,8 +100,8 @@ static int disable_blocked_windows(struct blocked_node_state *states, int max_st
 
 		if (count >= max_states)
 			break;
-		wlr_log(WLR_DEBUG, "ext-copy-capture: disabling scene_tree=%p"
-			" app_id=%s title=%s", (void *)&tl->scene_tree->node, c->app_id, c->title);
+		wlr_log(WLR_DEBUG, "Disabling scene_tree=%p app_id=%s title=%s", (void *)&tl->scene_tree->node,
+			c->app_id, c->title);
 
 		states[count].node = &tl->scene_tree->node;
 		states[count].was_enabled = tl->scene_tree->node.enabled;
@@ -342,16 +342,13 @@ static void frame_handle_attach_buffer(struct wl_client *wl_client,
 	struct wlr_dmabuf_attributes dmabuf_attribs;
 	struct wlr_shm_attributes shm_attribs;
 	if (wlr_buffer_get_dmabuf(buffer, &dmabuf_attribs)) {
-		wlr_log(WLR_INFO, "ext-copy-capture: attached buffer is DMA-BUF "
-			"%dx%d fmt=0x%x n_planes=%d", buffer->width, buffer->height, dmabuf_attribs.format,
-				dmabuf_attribs.n_planes);
+		wlr_log(WLR_INFO, "Attached buffer is DMA-BUF %dx%d fmt=0x%x n_planes=%d", buffer->width,
+			buffer->height, dmabuf_attribs.format, dmabuf_attribs.n_planes);
 	} else if (wlr_buffer_get_shm(buffer, &shm_attribs)) {
-		wlr_log(WLR_INFO, "ext-copy-capture: attached buffer is SHM "
-			"%dx%d fmt=0x%x stride=%d", buffer->width, buffer->height, shm_attribs.format,
-				shm_attribs.stride);
+		wlr_log(WLR_INFO, "Attached buffer is SHM %dx%d fmt=0x%x stride=%d", buffer->width, buffer->height,
+			shm_attribs.format, shm_attribs.stride);
 	} else {
-		wlr_log(WLR_INFO, "ext-copy-capture: attached buffer type is "
-			"UNKNOWN %dx%d", buffer->width, buffer->height);
+		wlr_log(WLR_INFO, "Attached buffer type is UNKNOWN %dx%d", buffer->width, buffer->height);
 	}
 
 	if (frame->buffer)
@@ -394,19 +391,19 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 	int nblocked = disable_blocked_windows(blocked_states, MAX_BLOCKED_WINDOWS);
 	bool ok = false;
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: blocked windows found=%d", nblocked);
+	wlr_log(WLR_DEBUG, "Blocked windows found=%d", nblocked);
 
 	if (nblocked > 0 && src->last_buffer) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: invalidating cached buffer");
+		wlr_log(WLR_DEBUG, "Invalidating cached buffer");
 		wlr_buffer_unlock(src->last_buffer);
 		src->last_buffer = NULL;
 	}
 
 	if (!src->last_buffer) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: no buffer, rendering fresh frame");
+		wlr_log(WLR_DEBUG, "No buffer, rendering fresh frame");
 		struct wlr_scene_output *scene_output = wlr_scene_get_scene_output(server.scene, output);
 		if (!scene_output) {
-			wlr_log(WLR_DEBUG, "ext-copy-capture: no scene output");
+			wlr_log(WLR_DEBUG, "No scene output");
 			goto out;
 		}
 		struct wlr_output_state tmp_state;
@@ -420,13 +417,13 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 			const struct wlr_drm_format *fmt = fmts ? wlr_drm_format_set_get(fmts,
 				output->render_format) : NULL;
 			if (!fmt) {
-				wlr_log(WLR_DEBUG, "ext-copy-capture: no render format for swapchain");
+				wlr_log(WLR_DEBUG, "No render format for swapchain");
 				wlr_output_state_finish(&tmp_state);
 				goto out;
 			}
 			src->swapchain = wlr_swapchain_create(server.allocator, output->width, output->height, fmt);
 			if (!src->swapchain) {
-				wlr_log(WLR_DEBUG, "ext-copy-capture: swapchain creation failed");
+				wlr_log(WLR_DEBUG, "Swapchain creation failed");
 				wlr_output_state_finish(&tmp_state);
 				goto out;
 			}
@@ -435,15 +432,15 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 			.swapchain = src->swapchain,
 		};
 		if (!wlr_scene_output_build_state(scene_output, &tmp_state, &opts)) {
-			wlr_log(WLR_DEBUG, "ext-copy-capture: scene build failed");
+			wlr_log(WLR_DEBUG, "Scene build failed");
 			wlr_output_state_finish(&tmp_state);
 			goto out;
 		}
 		src->last_buffer = tmp_state.buffer;
 		wlr_buffer_lock(src->last_buffer);
 		wlr_output_state_finish(&tmp_state);
-		wlr_log(WLR_DEBUG, "ext-copy-capture: fresh render OK, buffer=%p (%dx%d)",
-			(void *)src->last_buffer, src->last_buffer->width, src->last_buffer->height);
+		wlr_log(WLR_DEBUG, "Fresh render OK, buffer=%p (%dx%d)", (void *)src->last_buffer,
+			src->last_buffer->width, src->last_buffer->height);
 	}
 
 	int phys_w = src->last_buffer->width;
@@ -451,12 +448,12 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 
 	struct wlr_texture *texture = wlr_texture_from_buffer(output->renderer, src->last_buffer);
 	if (!texture) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: failed to create texture");
+		wlr_log(WLR_DEBUG, "Failed to create texture");
 		goto out;
 	}
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: texture=%p phys=%dx%d logical=%dx%d", (void *)texture, phys_w,
-		phys_h, src->base.width, src->base.height);
+	wlr_log(WLR_DEBUG, "Texture=%p phys=%dx%d logical=%dx%d", (void *)texture, phys_w, phys_h,
+		src->base.width, src->base.height);
 
 	// try rendering directly to client buffer
 	const pixman_region32_t *clip = !pixman_region32_empty(&frame->buffer_damage) ?
@@ -464,7 +461,7 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 	struct wlr_render_pass *pass = wlr_renderer_begin_buffer_pass(output->renderer, frame->buffer,
 		NULL);
 	if (pass) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: direct render pass started");
+		wlr_log(WLR_DEBUG, "Direct render pass started");
 		wlr_render_pass_add_texture(pass, &(struct wlr_render_texture_options){
 			.texture = texture,
 			.clip = clip,
@@ -481,13 +478,12 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 
 		wlr_render_pass_submit(pass);
 		wlr_texture_destroy(texture);
-		wlr_log(WLR_DEBUG, "ext-copy-capture: direct render completed OK");
+		wlr_log(WLR_DEBUG, "Direct render completed OK");
 		ok = true;
 		goto out;
 	}
 
-	wlr_log(WLR_INFO, "ext-copy-capture: direct render FAILED, "
-		"falling back to SHM read-pixels path");
+	wlr_log(WLR_INFO, "Direct render FAILED, falling back to SHM read-pixels path");
 
 	uint32_t dst_format;
 	size_t dst_stride;
@@ -496,12 +492,12 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 	if (!wlr_buffer_begin_data_ptr_access(frame->buffer, WLR_BUFFER_DATA_PTR_ACCESS_WRITE, &dst_data,
 			&dst_format, &dst_stride)) {
 		wlr_texture_destroy(texture);
-		wlr_log(WLR_DEBUG, "ext-copy-capture: client buffer not writable");
+		wlr_log(WLR_DEBUG, "Client buffer not writable");
 		goto out;
 	}
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: client fmt=0x%x stride=%zu "
-		"size=%dx%d", dst_format, dst_stride, phys_w, phys_h);
+	wlr_log(WLR_DEBUG, "Client fmt=0x%x stride=%zu size=%dx%d", dst_format, dst_stride, phys_w,
+		phys_h);
 
 	if (!wlr_texture_read_pixels(texture, &(struct wlr_texture_read_pixels_options){
 		.data = dst_data,
@@ -514,13 +510,13 @@ static bool perform_output_capture(copy_frame_t *frame, image_copy_source_t *src
 	})) {
 		wlr_buffer_end_data_ptr_access(frame->buffer);
 		wlr_texture_destroy(texture);
-		wlr_log(WLR_DEBUG, "ext-copy-capture: wlr_texture_read_pixels failed");
+		wlr_log(WLR_DEBUG, "Wlr_texture_read_pixels failed");
 		goto out;
 	}
 
 	wlr_texture_destroy(texture);
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: SHM path completed OK");
+	wlr_log(WLR_DEBUG, "SHM path completed OK");
 	wlr_buffer_end_data_ptr_access(frame->buffer);
 	ok = true;
 
@@ -556,7 +552,7 @@ static bool capture_output_commit(struct wlr_output *output, const struct wlr_ou
 		return true;
 
 	if (!(state->committed & WLR_OUTPUT_STATE_BUFFER)) {
-		wlr_log(WLR_DEBUG, "capture output commit: missing buffer");
+		wlr_log(WLR_DEBUG, "Capture output commit: missing buffer");
 		return false;
 	}
 
@@ -583,7 +579,7 @@ static bool capture_renderer_init(capture_renderer_t *r, struct wlr_scene *scene
 	wlr_output_set_name(&r->output, name);
 
 	if (!wlr_output_init_render(&r->output, allocator, renderer)) {
-		wlr_log(WLR_ERROR, "capture_renderer: failed to init render");
+		wlr_log(WLR_ERROR, "Failed to init render");
 		wlr_output_finish(&r->output);
 		wlr_backend_finish(&r->backend);
 		return false;
@@ -591,7 +587,7 @@ static bool capture_renderer_init(capture_renderer_t *r, struct wlr_scene *scene
 
 	r->scene_output = wlr_scene_output_create(scene, &r->output);
 	if (!r->scene_output) {
-		wlr_log(WLR_ERROR, "capture_renderer: failed to create scene output");
+		wlr_log(WLR_ERROR, "Failed to create scene output");
 		wlr_output_finish(&r->output);
 		wlr_backend_finish(&r->backend);
 		return false;
@@ -625,13 +621,13 @@ static bool capture_renderer_render(capture_renderer_t *r, int width, int height
 	wlr_output_state_set_custom_mode(&state, width, height, 0);
 
 	if (!wlr_scene_output_build_state(r->scene_output, &state, NULL)) {
-		wlr_log(WLR_DEBUG, "capture_renderer: scene build failed");
+		wlr_log(WLR_DEBUG, "Scene build failed");
 		wlr_output_state_finish(&state);
 		return false;
 	}
 
 	if (!wlr_output_commit_state(&r->output, &state)) {
-		wlr_log(WLR_DEBUG, "capture_renderer: output commit failed");
+		wlr_log(WLR_DEBUG, "Output commit failed");
 		wlr_output_state_finish(&state);
 		return false;
 	}
@@ -713,7 +709,7 @@ static bool perform_scene_node_capture(copy_frame_t *frame,
 		struct wlr_ext_image_capture_source_v1 *source, struct wlr_scene *capture_scene, bool block_out,
 		void **capture_renderer_ptr) {
 	if (!capture_scene) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: no capture scene");
+		wlr_log(WLR_DEBUG, "No capture scene");
 		return false;
 	}
 
@@ -723,7 +719,7 @@ static bool perform_scene_node_capture(copy_frame_t *frame,
 		if (!r || !capture_renderer_init(r, capture_scene, wl_display_get_event_loop(server.wl_display),
 				server.allocator, server.renderer)) {
 			free(r);
-			wlr_log(WLR_DEBUG, "ext-copy-capture: failed to init renderer");
+			wlr_log(WLR_DEBUG, "Failed to init renderer");
 			return false;
 		}
 		*capture_renderer_ptr = r;
@@ -733,7 +729,7 @@ static bool perform_scene_node_capture(copy_frame_t *frame,
 	int nblocked = disable_blocked_windows(blocked_states, MAX_BLOCKED_WINDOWS);
 
 	if (block_out) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: blocking out toplevel");
+		wlr_log(WLR_DEBUG, "Blocking out toplevel");
 	}
 
 	struct wlr_buffer *source_buf = NULL;
@@ -778,11 +774,11 @@ static void frame_handle_capture(struct wl_client *wl_client, struct wl_resource
 	copy_session_t *session = frame->session;
 	struct wlr_ext_image_capture_source_v1 *source = session->source;
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: frame_handle_capture source=%p impl=%p", (void *)source,
+	wlr_log(WLR_DEBUG, "Frame_handle_capture source=%p impl=%p", (void *)source,
 		source ? (void *)source->impl : NULL);
 
 	if (!source) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: source is NULL, sending stopped");
+		wlr_log(WLR_DEBUG, "Source is NULL, sending stopped");
 		ext_image_copy_capture_frame_v1_send_failed(frame->resource,
 			EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_STOPPED);
 		session->frame = NULL;
@@ -790,29 +786,28 @@ static void frame_handle_capture(struct wl_client *wl_client, struct wl_resource
 		return;
 	}
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: checking output source path");
+	wlr_log(WLR_DEBUG, "Checking output source path");
 	if (wlr_output_try_from_ext_image_capture_source_v1(source) || source->impl == &source_impl) {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: source is output-backed, calling perform_output_capture");
+		wlr_log(WLR_DEBUG, "Source is output-backed, calling perform_output_capture");
 		image_copy_source_t *img_src = source_from_base(source);
 		if (perform_output_capture(frame, img_src)) {
 			session->frame = NULL;
 			frame_destroy(frame);
 			return;
 		}
-		wlr_log(WLR_DEBUG, "ext-copy-capture: perform_output_capture failed");
+		wlr_log(WLR_DEBUG, "Perform_output_capture failed");
 	} else {
-		wlr_log(WLR_DEBUG, "ext-copy-capture: source is NOT output-backed");
+		wlr_log(WLR_DEBUG, "Source is NOT output-backed");
 	}
 
 	// scene-node source
-	wlr_log(WLR_DEBUG, "ext-copy-capture: checking toplevel sources");
+	wlr_log(WLR_DEBUG, "Checking toplevel sources");
 	view_t *tl;
 	wl_list_for_each(tl, &server.views, link) {
 		if (tl->image_capture_source != source)
 			continue;
 
-		wlr_log(WLR_DEBUG, "ext-copy-capture: found matching view %p, "
-			"calling perform_scene_node_capture", (void *)tl);
+		wlr_log(WLR_DEBUG, "Found matching view %p, calling perform_scene_node_capture", (void *)tl);
 		bool block_out = tl->node && tl->node->client &&
 			tl->node->client->flags.block_out_from_screenshare;
 
@@ -823,11 +818,11 @@ static void frame_handle_capture(struct wl_client *wl_client, struct wl_resource
 			return;
 		}
 
-		wlr_log(WLR_DEBUG, "ext-copy-capture: perform_scene_node_capture failed");
+		wlr_log(WLR_DEBUG, "Perform_scene_node_capture failed");
 		break;
 	}
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: no matching source found, sending failed");
+	wlr_log(WLR_DEBUG, "No matching source found, sending failed");
 	ext_image_copy_capture_frame_v1_send_failed(frame->resource,
 		EXT_IMAGE_COPY_CAPTURE_FRAME_V1_FAILURE_REASON_UNKNOWN);
 	session->frame = NULL;
@@ -1003,8 +998,8 @@ static void mgr_handle_create_session(struct wl_client *wl_client, struct wl_res
 	session->source_destroy.notify = session_source_destroy;
 	wl_signal_add(&wlr_source->events.destroy, &session->source_destroy);
 
-	wlr_log(WLR_DEBUG, "ext-copy-capture: create_session source=%p impl=%p "
-		"width=%d height=%d shm_fmts=%zu", (void *)wlr_source, (void *)wlr_source->impl, wlr_source->width,
+	wlr_log(WLR_DEBUG, "Create_session source=%p impl=%p width=%d height=%d "
+		"shm_fmts=%zu", (void *)wlr_source, (void *)wlr_source->impl, wlr_source->width,
 			wlr_source->height, wlr_source->shm_formats_len);
 
 	if (wlr_source->impl->start) {
@@ -1100,7 +1095,7 @@ void image_copy_capture_init(void) {
 	copy_mgr->display_destroy.notify = copy_mgr_display_destroy;
 	wl_display_add_destroy_listener(server.wl_display, &copy_mgr->display_destroy);
 
-	wlr_log(WLR_INFO, "ext-image-copy-capture initialized");
+	wlr_log(WLR_INFO, "Initialized ext-image-copy-capture");
 	return;
 
 err_out:

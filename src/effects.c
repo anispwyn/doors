@@ -132,13 +132,13 @@ static struct wlr_swapchain *create_swapchain_sized(int w, int h) {
 	if (!fmt)
 		fmt = fmts ? wlr_drm_format_set_get(fmts, DRM_FORMAT_XRGB8888) : NULL;
 	if (!fmt) {
-		wlr_log(WLR_ERROR, "blur: no render format for capture swapchain");
+		wlr_log(WLR_ERROR, "No render format for capture swapchain");
 		return NULL;
 	}
 
 	struct wlr_swapchain *swapchain = wlr_swapchain_create(server.allocator, w, h, fmt);
 	if (!swapchain)
-		wlr_log(WLR_ERROR, "blur: failed to create %dx%d capture swapchain", w, h);
+		wlr_log(WLR_ERROR, "Failed to create %dx%d capture swapchain", w, h);
 	return swapchain;
 }
 
@@ -201,7 +201,7 @@ static bool create_capture_output(effects_output_t *ctx, int width, int height) 
 	wlr_output_state_set_custom_mode(&ctx->capture_state, width, height, 0);
 
 	wlr_scene_output_set_position(ctx->capture_scene_output, -0x7fff, -0x7fff);
-	wlr_log(WLR_INFO, "blur: created capture output %s", name);
+	wlr_log(WLR_INFO, "Created capture output %s", name);
 	return true;
 }
 
@@ -263,17 +263,17 @@ bool effects_init(void) {
 #endif
 	if (renderer_name == NULL) {
 		if (wlr_renderer_is_pixman(server.renderer)) {
-			wlr_log(WLR_INFO, "effects: pixman renderer detected - blur disabled");
+			wlr_log(WLR_INFO, "Pixman renderer detected - blur disabled");
 			return false;
 		}
-		wlr_log(WLR_INFO, "effects: unknown renderer detected - blur disabled");
+		wlr_log(WLR_INFO, "Unknown renderer detected - blur disabled");
 		return false;
 	}
 
 	effects_backend = effects_state.backend;
 
 	if (!effects_state.backend->init(server.renderer, server.allocator)) {
-		wlr_log(WLR_INFO, "effects: backend init failed - blur disabled");
+		wlr_log(WLR_INFO, "Backend init failed - blur disabled");
 		return false;
 	}
 
@@ -288,7 +288,7 @@ bool effects_init(void) {
 	}
 
 	effects_state.available = true;
-	wlr_log(WLR_INFO, "blur: initialised (%s)", renderer_name);
+	wlr_log(WLR_INFO, "Initialised (%s)", renderer_name);
 	return true;
 }
 
@@ -327,7 +327,7 @@ effects_output_t *effects_output_init(int width, int height) {
 	pixman_region32_init(&ctx->scratch_region_c);
 
 	if (!create_capture_output(ctx, width, height)) {
-		wlr_log(WLR_ERROR, "blur: failed to create capture output");
+		wlr_log(WLR_ERROR, "Failed to create capture output");
 		pixman_region32_fini(&ctx->scratch_region_a);
 		pixman_region32_fini(&ctx->scratch_region_b);
 		pixman_region32_fini(&ctx->scratch_region_c);
@@ -704,7 +704,7 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 	wlr_scene_output_set_position(ctx->capture_scene_output, -0x7fff, -0x7fff);
 
 	if (!ok || !cap_state.buffer) {
-		wlr_log(WLR_INFO, "capture_bg_to_tex1: no buffer from build_state");
+		wlr_log(WLR_INFO, "No buffer from build_state");
 		wlr_output_state_finish(&cap_state);
 		return (be_effect_resource_t){0};
 	}
@@ -860,9 +860,9 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 				NULL, 0, &blur_result) || !blur_result.valid || !effects_backend->blit(blur_result,
 				blur_out_target, ctx->blur_w, ctx->blur_h, NULL, 0)) {
 			ctx->blur_gen = 0;
-			wlr_log(WLR_ERROR,
-				"blur pass failed for output %s (blur_result.valid=%d, blur_out_target.valid=%d)", output->name,
-				blur_result.valid, blur_out_target.valid);
+			wlr_log(WLR_ERROR, "Blur pass failed for output %s "
+				"(blur_result.valid=%d, blur_out_target.valid=%d)", output->name, blur_result.valid,
+					blur_out_target.valid);
 			return false;
 		}
 		ctx->blur_gen = ctx->backdrop_gen;
@@ -2445,10 +2445,10 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 				else
 					per_left = 0;
 			}
-			wlr_log(WLR_INFO,
-				"effects diag: work=%d bg_damaged=%d mica_dirty=%d blur_stale=%d has_win_blur=%d "
-				"has_layer_blur=%d blur_nodes=%d unified=%d [%s]", effects_work, bg_damaged, mica_dirty,
-					blur_stale, has_window_blur, has_layer_blur, n_blur_nodes, unified, per_win);
+			wlr_log(WLR_INFO, "Effects diag: work=%d bg_damaged=%d mica_dirty=%d "
+				"blur_stale=%d has_win_blur=%d has_layer_blur=%d blur_nodes=%d unified=%d "
+				"[%s]", effects_work, bg_damaged, mica_dirty, blur_stale, has_window_blur, has_layer_blur,
+					n_blur_nodes, unified, per_win);
 		}
 	}
 
@@ -2715,7 +2715,7 @@ enum blur_algorithm blur_algorithm_from_str(const char *str) {
 		return BLUR_ALGORITHM_LENS_REFRACTION;
 	if (strcmp(str, "none") == 0)
 		return BLUR_ALGORITHM_NONE;
-	wlr_log(WLR_ERROR, "blur: unknown algorithm '%s', using kawase", str);
+	wlr_log(WLR_ERROR, "Unknown algorithm '%s', using kawase", str);
 	return BLUR_ALGORITHM_KAWASE;
 }
 
@@ -2765,7 +2765,7 @@ bool screen_shader_load_file(const char *path) {
 
 	FILE *f = fopen(path, "r");
 	if (!f) {
-		wlr_log(WLR_ERROR, "screen_shader: cannot open '%s'", path);
+		wlr_log(WLR_ERROR, "Cannot open '%s'", path);
 		return false;
 	}
 
@@ -2775,7 +2775,7 @@ bool screen_shader_load_file(const char *path) {
 
 	if (size <= 0 || size > 1024 * 1024) {
 		fclose(f);
-		wlr_log(WLR_ERROR, "screen_shader: file '%s' too large or empty", path);
+		wlr_log(WLR_ERROR, "File '%s' too large or empty", path);
 		return false;
 	}
 

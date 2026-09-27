@@ -73,7 +73,7 @@ static void create_xdg_popup(struct wlr_xdg_popup *xdg_popup, struct wlr_scene_t
 		struct wlr_scene_tree *image_capture_parent_tree) {
 	popup_t *popup = calloc(1, sizeof(*popup));
 	if (!popup) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 	popup->xdg_popup = xdg_popup;

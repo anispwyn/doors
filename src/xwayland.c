@@ -126,7 +126,7 @@ static void unmanaged_handle_map(struct wl_listener *listener, void *data) {
 			bool resolved_from_node = false;
 
 			if (!focused_view) {
-				wlr_log(WLR_INFO, "last_focused is NULL, searching for any mapped xwayland window");
+				wlr_log(WLR_INFO, "Last focused is NULL, searching for any mapped xwayland window");
 				output_t *mon = server.focused_output ? server.focused_output : (wl_list_empty(&mon_list) ? NULL
 					: wl_container_of(mon_list.next, mon, link));
 
@@ -277,7 +277,8 @@ static void unmanaged_handle_override_redirect(struct wl_listener *listener, voi
 	xwayland_toplevel_create(xsurface);
 }
 
-static struct xwayland_unmanaged_t *xwayland_unmanaged_create(struct wlr_xwayland_surface *xsurface) {
+static struct xwayland_unmanaged_t *xwayland_unmanaged_create(struct wlr_xwayland_surface *xsurface)
+		{
 	xwayland_unmanaged_t *surface = calloc(1, sizeof(*surface));
 	if (surface == NULL)
 		return NULL;
@@ -327,8 +328,8 @@ static bool xwayland_toplevel_wants_floating(struct xwayland_toplevel_t *xwaylan
 	return false;
 }
 
-static void xwayland_toplevel_configure(xwayland_toplevel_t *xwayland_toplevel, int x, int y, int width,
-		int height) {
+static void xwayland_toplevel_configure(xwayland_toplevel_t *xwayland_toplevel, int x, int y,
+		int width, int height) {
 	view_configure(&xwayland_toplevel->view, (struct wlr_box){
 		.x = x,
 		.y = y,
@@ -461,11 +462,10 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		return;
 	}
 
-	wlr_log(WLR_DEBUG,
-		"XWayland map: window_id=%u class='%s' title='%s' override_redirect=%d mapped=%d",
-		xsurface->window_id, xsurface->class ? xsurface->class : "(null)",
-		xsurface->title ? xsurface->title : "(null)", xsurface->override_redirect,
-		xsurface->surface->mapped);
+	wlr_log(WLR_DEBUG, "XWayland map: window_id=%u class='%s' title='%s' "
+		"override_redirect=%d mapped=%d", xsurface->window_id,
+			xsurface->class ? xsurface->class : "(null)", xsurface->title ? xsurface->title : "(null)",
+			xsurface->override_redirect, xsurface->surface->mapped);
 
 	wlr_scene_subsurface_tree_create(xwayland_toplevel->view.content_tree, xsurface->surface);
 
@@ -480,25 +480,25 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	output_t *mon = server.focused_output ? server.focused_output : (wl_list_empty(&mon_list) ? NULL :
 		wl_container_of(mon_list.next, mon, link));
 	if (!mon) {
-		wlr_log(WLR_ERROR, "No monitor available for xwayland view");
+		wlr_log(WLR_ERROR, "No monitor available for xwayland view %p", (void *)xsurface);
 		return;
 	}
 
 	desktop_t *d = mon->desk;
 	if (!d) {
-		wlr_log(WLR_ERROR, "No desktop available for xwayland view");
+		wlr_log(WLR_ERROR, "No desktop available for xwayland view %p", (void *)xsurface);
 		return;
 	}
 
 	node_t *node = make_node(next_node_id++);
 	if (!node) {
-		wlr_log(WLR_ERROR, "Failed to create node for xwayland view");
+		wlr_log(WLR_ERROR, "Failed to create node for xwayland view %p", (void *)xsurface);
 		return;
 	}
 
 	client_t *client = make_client();
 	if (!client) {
-		wlr_log(WLR_ERROR, "Failed to create client for xwayland view");
+		wlr_log(WLR_ERROR, "Failed to create client for xwayland view %p", (void *)xsurface);
 		free_node(node);
 		return;
 	}
@@ -783,7 +783,7 @@ static void handle_request_fullscreen(struct wl_listener *listener, void *data) 
 
 	struct wlr_scene_tree *scene_tree = client_get_scene_tree(client);
 	if (!scene_tree) {
-		wlr_log(WLR_ERROR, "handle_request_fullscreen: no scene tree");
+		wlr_log(WLR_ERROR, "No scene tree for node %u", node->id);
 		return;
 	}
 
@@ -937,7 +937,7 @@ static void handle_set_startup_id(struct wl_listener *listener, void *data) {
 	if (token) {
 		launcher_ctx_t *ctx = token->data;
 		if (ctx) {
-			wlr_log(WLR_DEBUG, "xwayland: startup_id '%s' matches launcher ctx", xsurface->startup_id);
+			wlr_log(WLR_DEBUG, "Startup_id '%s' matches launcher ctx", xsurface->startup_id);
 			launcher_ctx_consume(ctx);
 		}
 	}
@@ -1013,7 +1013,7 @@ static xwayland_toplevel_t *xwayland_toplevel_create(struct wlr_xwayland_surface
 	xwayland_toplevel->view.impl = &xwayland_view_impl;
 
 	if (!view_init(&xwayland_toplevel->view, VIEW_XWAYLAND)) {
-		wlr_log(WLR_ERROR, "Failed to initialise view for xwayland surface");
+		wlr_log(WLR_ERROR, "Failed to initialise view for xwayland surface %p", (void *)xsurface);
 		free(xwayland_toplevel);
 		return NULL;
 	}

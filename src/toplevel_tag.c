@@ -17,7 +17,7 @@ static void xdg_toplevel_tag_manager_v1_handle_set_tag(struct wl_listener *liste
 	free(toplevel->tag);
 	toplevel->tag = strdup(event->tag);
 	if (!toplevel->tag) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 

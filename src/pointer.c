@@ -10,7 +10,7 @@ void pointer_create(struct wlr_input_device *device) {
 	struct wlr_pointer *pointer = wlr_pointer_from_input_device(device);
 	pointer_t *ptr = calloc(1, sizeof(*ptr));
 	if (!ptr) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 	ptr->wlr_pointer = pointer;

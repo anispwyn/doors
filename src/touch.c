@@ -91,7 +91,7 @@ touch_t *touch_create(struct wlr_input_device *device) {
 	wlr_cursor_attach_input_device(server.cursor, device);
 	touch_t *t = calloc(1, sizeof(*t));
 	if (!t) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 	t->wlr_touch = wlr_touch_from_input_device(device);

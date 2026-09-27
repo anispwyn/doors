@@ -312,7 +312,7 @@ static void output_repaint(output_t *output) {
 	}
 
 	if (!wlr_output_commit_state(output->wlr_output, &pending))
-		wlr_log(WLR_ERROR, "Failed to commit output state");
+		wlr_log(WLR_ERROR, "Failed to commit output state for %s", output->name);
 	wlr_output_state_finish(&pending);
 
 	output->hdr = output_is_hdr_active(output);

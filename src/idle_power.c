@@ -39,7 +39,7 @@ static void turn_displays_on(void) {
 		wlr_output_commit_state(m->wlr_output, &state);
 		wlr_output_state_finish(&state);
 	}
-	wlr_log(WLR_DEBUG, "idle_power: displays turned on");
+	wlr_log(WLR_DEBUG, "Displays turned on");
 }
 
 static void turn_displays_off(void) {
@@ -56,7 +56,7 @@ static void turn_displays_off(void) {
 		wlr_output_commit_state(m->wlr_output, &state);
 		wlr_output_state_finish(&state);
 	}
-	wlr_log(WLR_DEBUG, "idle_power: displays turned off");
+	wlr_log(WLR_DEBUG, "Displays turned off");
 }
 
 static int handle_dpms_poll_timer(void *data) {
@@ -117,7 +117,7 @@ void idle_power_init(void) {
 	if (settings.idle_dpms && settings.idle_timeout > 0 && idle_timer)
 		wl_event_source_timer_update(idle_timer, settings.idle_timeout * 1000);
 
-	wlr_log(WLR_DEBUG, "idle_power: initialized (timeout=%ds, dpms=%s)", settings.idle_timeout,
+	wlr_log(WLR_DEBUG, "Initialized (timeout=%ds, dpms=%s)", settings.idle_timeout,
 		settings.idle_dpms ? "on" : "off");
 }
 

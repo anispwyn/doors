@@ -38,8 +38,8 @@ int desktop_toplevels(desktop_t *d, node_t ***out_nodes) {
 
 	view_t *view;
 	wl_list_for_each(view, &server.views, link) {
-		if (view->mapped && view->node != NULL && view->node->client != NULL &&
-			view->node->desktop == d && node_outside_tree(view->node, d))
+		if (view->mapped && view->node != NULL && view->node->client != NULL && view->node->desktop == d &&
+			node_outside_tree(view->node, d))
 			count++;
 	}
 
@@ -58,8 +58,8 @@ int desktop_toplevels(desktop_t *d, node_t ***out_nodes) {
 	}
 
 	wl_list_for_each(view, &server.views, link) {
-		if (view->mapped && view->node != NULL && view->node->client != NULL &&
-			view->node->desktop == d && node_outside_tree(view->node, d))
+		if (view->mapped && view->node != NULL && view->node->client != NULL && view->node->desktop == d &&
+			node_outside_tree(view->node, d))
 			nodes[index++] = view->node;
 	}
 
@@ -79,8 +79,7 @@ bool desktop_has_toplevels(desktop_t *d) {
 
 	view_t *view;
 	wl_list_for_each(view, &server.views, link) {
-		if (view->mapped && view->node != NULL && view->node->client != NULL &&
-			view->node->desktop == d)
+		if (view->mapped && view->node != NULL && view->node->client != NULL && view->node->desktop == d)
 			return true;
 	}
 
@@ -205,7 +204,7 @@ void float_node_set_rect(node_t *n, struct wlr_box r) {
 		return;
 
 	if (client_is_maximized(n->client)) {
-		wlr_log(WLR_DEBUG, "float_node_set_rect: ignoring, node %u is maximized", n->id);
+		wlr_log(WLR_DEBUG, "Ignoring, node %u is maximized", n->id);
 		return;
 	}
 
@@ -252,7 +251,7 @@ static void float_node_impl(output_t *m, desktop_t *d, node_t *n, const struct w
 	client_t *c = n->client;
 	struct wlr_scene_tree *scene_tree = client_get_scene_tree(c);
 	if (scene_tree == NULL) {
-		wlr_log(WLR_ERROR, "float_node: node %u has no scene tree", n->id);
+		wlr_log(WLR_ERROR, "Node %u has no scene tree", n->id);
 		return;
 	}
 
@@ -318,8 +317,8 @@ static void float_node_impl(output_t *m, desktop_t *d, node_t *n, const struct w
 	if (announce)
 		transaction_commit_dirty();
 
-	wlr_log(WLR_DEBUG, "float_node: node %u now floating at (%d,%d %dx%d)", n->id, target.x, target.y,
-		target.width, target.height);
+	wlr_log(WLR_DEBUG, "Node %u now floating at (%d,%d %dx%d)", n->id, target.x, target.y, target.width,
+		target.height);
 }
 
 void float_node(output_t *m, desktop_t *d, node_t *n, const struct wlr_box *rect) {
@@ -333,7 +332,7 @@ void tile_node(output_t *m, desktop_t *d, node_t *n) {
 	client_t *c = n->client;
 	struct wlr_scene_tree *scene_tree = client_get_scene_tree(c);
 	if (scene_tree == NULL) {
-		wlr_log(WLR_ERROR, "tile_node: node %u has no scene tree", n->id);
+		wlr_log(WLR_ERROR, "Node %u has no scene tree", n->id);
 		return;
 	}
 

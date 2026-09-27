@@ -15,7 +15,7 @@ static void handle_pointer_warp(struct wl_listener *listener, void *data) {
 		focused_client = wl_resource_get_client(focused_surface->resource);
 
 	if (focused_surface != NULL || event->seat_client->client != focused_client) {
-		wlr_log(WLR_DEBUG, "denying request to warp cursor from unfocused client");
+		wlr_log(WLR_DEBUG, "Denying request to warp cursor from unfocused client");
 		return;
 	}
 
@@ -25,7 +25,7 @@ static void handle_pointer_warp(struct wl_listener *listener, void *data) {
 	};
 
 	if (!wlr_box_contains_point(&surface_box, event->x, event->y)) {
-		wlr_log(WLR_DEBUG, "denying request to warp cursor outside of surface");
+		wlr_log(WLR_DEBUG, "Denying request to warp cursor outside of surface");
 		return;
 	}
 

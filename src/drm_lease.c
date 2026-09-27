@@ -21,7 +21,7 @@ void drm_lease_init(void) {
 		server.drm_lease_request.notify = handle_drm_lease_request;
 		wl_signal_add(&server.drm_lease_manager->events.request, &server.drm_lease_request);
 	} else {
-		wlr_log(WLR_ERROR, "failed to create drm lease manager");
+		wlr_log(WLR_ERROR, "Failed to create drm lease manager");
 	}
 }
 

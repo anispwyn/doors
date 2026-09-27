@@ -106,7 +106,7 @@ launcher_ctx_t *launcher_ctx_create(struct wlr_xdg_activation_token_v1 *token,
 
 	ctx->desktop_name = strdup(desktop_name);
 	if (!ctx->desktop_name) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		free(ctx);
 		return NULL;
 	}
@@ -136,14 +136,14 @@ launcher_ctx_t *launcher_ctx_create_internal(void) {
 		desktop_name = output->desk->name;
 
 	if (desktop_name == NULL) {
-		wlr_log(WLR_DEBUG, "xdg_activation: no focused desktop, skipping token");
+		wlr_log(WLR_DEBUG, "No focused desktop, skipping token");
 		return NULL;
 	}
 
 	struct wlr_xdg_activation_token_v1 *token =
 		wlr_xdg_activation_token_v1_create(server.xdg_activation_v1);
 	if (token == NULL) {
-		wlr_log(WLR_ERROR, "xdg_activation: failed to create activation token");
+		wlr_log(WLR_ERROR, "Failed to create activation token");
 		return NULL;
 	}
 
@@ -165,7 +165,7 @@ static void handle_xdg_activation_request_activate(struct wl_listener *listener,
 
 	struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(event->surface);
 	if (xdg_surface == NULL) {
-		wlr_log(WLR_DEBUG, "xdg_activation: surface is not an xdg surface");
+		wlr_log(WLR_DEBUG, "Surface is not an xdg surface");
 		return;
 	}
 
@@ -177,7 +177,7 @@ static void handle_xdg_activation_request_activate(struct wl_listener *listener,
 		if (ctx->activated)
 			return;
 		ctx->activated = true;
-		wlr_log(WLR_DEBUG, "xdg_activation: startup notification for unmapped surface");
+		wlr_log(WLR_DEBUG, "Startup notification for unmapped surface");
 		return;
 	}
 
@@ -185,7 +185,7 @@ static void handle_xdg_activation_request_activate(struct wl_listener *listener,
 	if (view == NULL)
 		return;
 
-	wlr_log(WLR_DEBUG, "xdg_activation: activating toplevel %p", (void *)view);
+	wlr_log(WLR_DEBUG, "Activating toplevel %p", (void *)view);
 
 	wlr_scene_node_raise_to_top(&view->scene_tree->node);
 	if (view->node && view->node->output && view->node->desktop)
@@ -202,17 +202,17 @@ static void handle_xdg_activation_new_token(struct wl_listener *listener, void *
 		desktop_name = output->desk->name;
 
 	if (desktop_name == NULL) {
-		wlr_log(WLR_DEBUG, "xdg_activation: no focused desktop, skipping token");
+		wlr_log(WLR_DEBUG, "No focused desktop, skipping token");
 		return;
 	}
 
 	launcher_ctx_t *ctx = launcher_ctx_create(token, desktop_name);
 	if (ctx == NULL) {
-		wlr_log(WLR_ERROR, "xdg_activation: failed to create launcher context");
+		wlr_log(WLR_ERROR, "Failed to create launcher context");
 		return;
 	}
 
-	wlr_log(WLR_DEBUG, "xdg_activation: new token for desktop '%s'", desktop_name);
+	wlr_log(WLR_DEBUG, "New token for desktop '%s'", desktop_name);
 }
 
 // Ignored signals stay ignored through exec() and the signal mask is inherited too, programs
@@ -300,10 +300,10 @@ void launcher_exec(const char *cmd) {
 		}
 
 		execlp("sh", "sh", "-c", cmd_str, (void *)NULL);
-		wlr_log(WLR_ERROR, "execlp failed: %s", strerror(errno));
+		wlr_log(WLR_ERROR, "Execlp failed: %s", strerror(errno));
 		_exit(1);
 	} else if (child < 0) {
-		wlr_log(WLR_ERROR, "fork() failed: %s", strerror(errno));
+		wlr_log(WLR_ERROR, "Fork() failed: %s", strerror(errno));
 		if (ctx)
 			launcher_ctx_destroy(ctx);
 		return;

@@ -107,7 +107,8 @@ static void xdg_view_impl_configure(view_t *view, struct wlr_box rect) {
 	if (toplevel == NULL || toplevel->xdg_toplevel == NULL)
 		return;
 
-	if (rect.width == (int)view->last_requested.width && rect.height == (int)view->last_requested.height)
+	if (rect.width == (int)view->last_requested.width &&
+		rect.height == (int)view->last_requested.height)
 		return;
 
 	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, rect.width, rect.height);
@@ -158,7 +159,7 @@ void xdg_toplevel_adopt(xdg_toplevel_t *toplevel) {
 
 	output_t *m = server.focused_output;
 	if (m == NULL) {
-		wlr_log(WLR_ERROR, "No monitor available for toplevel");
+		wlr_log(WLR_ERROR, "No monitor available for toplevel %p", (void *)toplevel);
 		return;
 	}
 
@@ -171,20 +172,20 @@ void xdg_toplevel_adopt(xdg_toplevel_t *toplevel) {
 			d = m->desk;
 			server.focused_output = m;
 		} else {
-			wlr_log(WLR_ERROR, "No desktop available for toplevel");
+			wlr_log(WLR_ERROR, "No desktop available for toplevel %p", (void *)toplevel);
 			return;
 		}
 	}
 
 	node_t *n = make_node(0);
 	if (n == NULL) {
-		wlr_log(WLR_ERROR, "Failed to create node for toplevel");
+		wlr_log(WLR_ERROR, "Failed to create node for toplevel %p", (void *)toplevel);
 		return;
 	}
 
 	n->client = make_client();
 	if (n->client == NULL) {
-		wlr_log(WLR_ERROR, "Failed to create client for toplevel");
+		wlr_log(WLR_ERROR, "Failed to create client for toplevel %p", (void *)toplevel);
 		free_node(n);
 		return;
 	}
@@ -248,7 +249,7 @@ void xdg_toplevel_adopt(xdg_toplevel_t *toplevel) {
 		wlr_log(WLR_INFO, "Target output is not available, using focused output");
 		target_output = output_get_valid();
 		if (!target_output) {
-			wlr_log(WLR_ERROR, "No valid output available for toplevel");
+			wlr_log(WLR_ERROR, "No valid output available for toplevel %p", (void *)toplevel);
 			free_node(n);
 			return;
 		}
@@ -517,9 +518,8 @@ void xdg_toplevel_commit(struct wl_listener *listener, void *data) {
 				constraints_changed = true;
 			}
 			if (constraints_changed && toplevel->view.node->output && toplevel->view.node->desktop) {
-				wlr_log(WLR_DEBUG, "xdg_toplevel_commit: node %u constraints updated to %dx%d",
-					toplevel->view.node->id, toplevel->view.node->constraints.min_width,
-					toplevel->view.node->constraints.min_height);
+				wlr_log(WLR_DEBUG, "Node %u constraints updated to %dx%d", toplevel->view.node->id,
+					toplevel->view.node->constraints.min_width, toplevel->view.node->constraints.min_height);
 				arrange(toplevel->view.node->output, toplevel->view.node->desktop, true);
 			}
 		}
@@ -756,7 +756,7 @@ void xdg_toplevel_set_app_id(struct wl_listener *listener, void *data) {
 xdg_toplevel_t *xdg_toplevel_create(struct wlr_xdg_toplevel *xdg_toplevel) {
 	xdg_toplevel_t *toplevel = calloc(1, sizeof(*toplevel));
 	if (!toplevel) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 

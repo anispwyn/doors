@@ -116,10 +116,10 @@ static void scroller_on_focus(output_t *m, desktop_t *d, node_t *n) {
 	}
 
 	if (n != NULL && n->client && n->client->view && n->client->view->configured) {
-		wlr_log(WLR_DEBUG, "scroller_on_focus: triggering arrange");
+		wlr_log(WLR_DEBUG, "Triggering arrange");
 		arrange(m, d, true);
 	} else {
-		wlr_log(WLR_DEBUG, "scroller_on_focus: skipping arrange (initial map)");
+		wlr_log(WLR_DEBUG, "Skipping arrange (initial map)");
 	}
 }
 

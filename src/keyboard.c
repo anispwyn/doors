@@ -64,7 +64,7 @@ keyboard_t *keyboard_create(struct wlr_input_device *device) {
 
 	keyboard_t *keyboard = calloc(1, sizeof(*keyboard));
 	if (!keyboard) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 	keyboard->wlr_keyboard = wlr_keyboard;
@@ -243,7 +243,7 @@ bool handle_keybind(uint32_t modifiers, xkb_keysym_t sym) {
 			active_submap->name, active_submap->num_keybinds, sym, modifiers);
 		keybind_t *kb = find_keybind(modifiers, sym, 0, false, false);
 		if (kb) {
-			wlr_log(WLR_DEBUG, "  matched submap keybind: action=%d", kb->action);
+			wlr_log(WLR_DEBUG, "  Matched submap keybind: action=%d", kb->action);
 			execute_keybind(kb);
 			return true;
 		}
@@ -309,20 +309,19 @@ void close_focused(void) {
 
 void toggle_block_out_from_screenshare(void) {
 	if (mon == NULL || mon->desk == NULL || mon->desk->focus == NULL) {
-		wlr_log(WLR_DEBUG, "toggle_block_out: mon=%p desk=%p focus=%p", (void *)mon,
-			mon ? (void *)mon->desk : NULL, (mon && mon->desk) ? (void *)mon->desk->focus : NULL);
+		wlr_log(WLR_DEBUG, "Mon=%p desk=%p focus=%p", (void *)mon, mon ? (void *)mon->desk : NULL,
+			(mon && mon->desk) ? (void *)mon->desk->focus : NULL);
 		return;
 	}
 
 	node_t *n = mon->desk->focus;
 	if (n->client == NULL) {
-		wlr_log(WLR_DEBUG, "toggle_block_out: no client on focus");
+		wlr_log(WLR_DEBUG, "No client on focus");
 		return;
 	}
 
 	n->client->flags.block_out_from_screenshare = !n->client->flags.block_out_from_screenshare;
-	wlr_log(WLR_DEBUG, "toggle_block_out: %s -> %d", n->client->app_id,
-		n->client->flags.block_out_from_screenshare);
+	wlr_log(WLR_DEBUG, "%s -> %d", n->client->app_id, n->client->flags.block_out_from_screenshare);
 
 	// toggle the image capture surface, which is what the compositor shows to
 	// screen recorders instead of the real surface
@@ -337,7 +336,7 @@ void toggle_block_out_from_screenshare(void) {
 		}
 	}
 
-	wlr_log(WLR_INFO, "toggle block_out_from_screenshare: %s",
+	wlr_log(WLR_INFO, "Block out from screenshare: %s",
 		n->client->flags.block_out_from_screenshare ? "on" : "off");
 }
 
@@ -349,29 +348,29 @@ void toggle_floating(void) {
 	if (n->client == NULL)
 		return;
 
-	wlr_log(WLR_INFO, "toggle_floating: node=%u state=%d hidden=%d parent=%u root=%u focus=%u", n->id,
-		n->client->state, n->hidden, n->parent ? n->parent->id : 0,
-		mon->desk->root ? mon->desk->root->id : 0, mon->desk->focus ? mon->desk->focus->id : 0);
+	wlr_log(WLR_INFO, "Node=%u state=%d hidden=%d parent=%u root=%u focus=%u", n->id, n->client->state,
+		n->hidden, n->parent ? n->parent->id : 0, mon->desk->root ? mon->desk->root->id : 0,
+		mon->desk->focus ? mon->desk->focus->id : 0);
 
 	switch (n->client->state) {
 	case STATE_FLOATING:
 		if (n->parent != NULL)
-			wlr_log(WLR_ERROR, "toggle_floating: floating node %u has non-NULL parent %u, unexpected state",
-				n->id, n->parent->id);
+			wlr_log(WLR_ERROR, "Floating node %u has non-NULL parent %u, unexpected state", n->id,
+				n->parent->id);
 
 		tile_node(mon, mon->desk, n);
 
-		wlr_log(WLR_INFO, "toggle_floating: now tiled, node=%u parent=%u root=%u", n->id,
-			n->parent ? n->parent->id : 0, mon->desk->root ? mon->desk->root->id : 0);
+		wlr_log(WLR_INFO, "Now tiled, node=%u parent=%u root=%u", n->id, n->parent ? n->parent->id : 0,
+			mon->desk->root ? mon->desk->root->id : 0);
 		break;
 	case STATE_TILED:
 		if (n->parent == NULL && mon->desk->root != n)
-			wlr_log(WLR_ERROR,
-				"toggle_floating: tiled node %u has no parent and is not root, already detached", n->id);
+			wlr_log(WLR_ERROR, "Tiled node %u has no parent and is not root, "
+				"already detached", n->id);
 
 		float_node(mon, mon->desk, n, NULL);
 
-		wlr_log(WLR_INFO, "toggle_floating: now floating, node=%u root=%u focus=%u", n->id,
+		wlr_log(WLR_INFO, "Now floating, node=%u root=%u focus=%u", n->id,
 			mon->desk->root ? mon->desk->root->id : 0, mon->desk->focus ? mon->desk->focus->id : 0);
 		break;
 	default:
@@ -840,7 +839,7 @@ static bool resize_master_stack_ratio(bool horizontal, float delta) {
 
 void resize_left(void) {
 	if (mon == NULL || mon->desk == NULL || mon->desk->focus == NULL) {
-		wlr_log(WLR_ERROR, "resize_left: invalid state mon=%p desk=%p focus=%p", (void *)mon,
+		wlr_log(WLR_ERROR, "Invalid state mon=%p desk=%p focus=%p", (void *)mon,
 			mon ? (void *)mon->desk : NULL, mon && mon->desk ? (void *)mon->desk->focus : NULL);
 		return;
 	}
@@ -856,7 +855,7 @@ void resize_left(void) {
 
 	node_t *n = mon->desk->focus;
 	if (n->parent == NULL) {
-		wlr_log(WLR_ERROR, "resize_left: no parent node");
+		wlr_log(WLR_ERROR, "No parent for left resize of node %u", n->id);
 		return;
 	}
 
@@ -866,8 +865,8 @@ void resize_left(void) {
 	for (child = p; p != NULL && p->split_type != TYPE_VERTICAL; p = p->parent)
 		;
 
-	wlr_log(WLR_INFO, "resize_left: node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f",
-		n->id, p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
+	wlr_log(WLR_INFO, "Node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f", n->id,
+		p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
@@ -875,17 +874,17 @@ void resize_left(void) {
 		if (ratio < 0.1)
 			ratio = 0.1;
 		node_set_split_ratio(p, ratio);
-		wlr_log(WLR_INFO, "resize_left: ratio_after=%f", p->split_ratio);
+		wlr_log(WLR_INFO, "Ratio after=%f for left resize of node %u", p->split_ratio, p->id);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized left");
 	} else {
-		wlr_log(WLR_ERROR, "resize_left: no VERTICAL ancestor found");
+		wlr_log(WLR_ERROR, "No vertical ancestor for left resize of node %u", n->id);
 	}
 }
 
 void resize_right(void) {
 	if (mon == NULL || mon->desk == NULL || mon->desk->focus == NULL) {
-		wlr_log(WLR_ERROR, "resize_right: invalid state");
+		wlr_log(WLR_ERROR, "Invalid state");
 		return;
 	}
 	if (resize_master_stack_ratio(true, RESIZE_AMOUNT))
@@ -900,7 +899,7 @@ void resize_right(void) {
 
 	node_t *n = mon->desk->focus;
 	if (n->parent == NULL) {
-		wlr_log(WLR_ERROR, "resize_right: no parent node");
+		wlr_log(WLR_ERROR, "No parent for right resize of node %u", n->id);
 		return;
 	}
 
@@ -910,8 +909,8 @@ void resize_right(void) {
 	for (child = p; p != NULL && p->split_type != TYPE_VERTICAL; p = p->parent)
 		;
 
-	wlr_log(WLR_INFO, "resize_right: node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f",
-		n->id, p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
+	wlr_log(WLR_INFO, "Node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f", n->id,
+		p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
@@ -919,17 +918,17 @@ void resize_right(void) {
 		if (ratio > 0.9)
 			ratio = 0.9;
 		node_set_split_ratio(p, ratio);
-		wlr_log(WLR_INFO, "resize_right: ratio_after=%f", p->split_ratio);
+		wlr_log(WLR_INFO, "Ratio after=%f for right resize of node %u", p->split_ratio, p->id);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized right");
 	} else {
-		wlr_log(WLR_ERROR, "resize_right: no VERTICAL ancestor found");
+		wlr_log(WLR_ERROR, "No vertical ancestor for right resize of node %u", n->id);
 	}
 }
 
 void resize_up(void) {
 	if (mon == NULL || mon->desk == NULL || mon->desk->focus == NULL) {
-		wlr_log(WLR_ERROR, "resize_up: invalid state");
+		wlr_log(WLR_ERROR, "Invalid state");
 		return;
 	}
 	if (resize_master_stack_ratio(false, -RESIZE_AMOUNT))
@@ -947,7 +946,7 @@ void resize_up(void) {
 
 	node_t *n = mon->desk->focus;
 	if (n->parent == NULL) {
-		wlr_log(WLR_ERROR, "resize_up: no parent node");
+		wlr_log(WLR_ERROR, "No parent for up resize of node %u", n->id);
 		return;
 	}
 
@@ -957,7 +956,7 @@ void resize_up(void) {
 	for (child = p; p != NULL && p->split_type != TYPE_HORIZONTAL; p = p->parent)
 		;
 
-	wlr_log(WLR_INFO, "resize_up: node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f", n->id,
+	wlr_log(WLR_INFO, "Node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f", n->id,
 		p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
 		p ? p->split_ratio : 0.0f);
 
@@ -966,17 +965,17 @@ void resize_up(void) {
 		if (ratio < 0.1)
 			ratio = 0.1;
 		node_set_split_ratio(p, ratio);
-		wlr_log(WLR_INFO, "resize_up: ratio_after=%f", p->split_ratio);
+		wlr_log(WLR_INFO, "Ratio after=%f for up resize of node %u", p->split_ratio, p->id);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized up");
 	} else {
-		wlr_log(WLR_ERROR, "resize_up: no HORIZONTAL ancestor found");
+		wlr_log(WLR_ERROR, "No horizontal ancestor for up resize of node %u", n->id);
 	}
 }
 
 void resize_down(void) {
 	if (mon == NULL || mon->desk == NULL || mon->desk->focus == NULL) {
-		wlr_log(WLR_ERROR, "resize_down: invalid state");
+		wlr_log(WLR_ERROR, "Invalid state");
 		return;
 	}
 	if (resize_master_stack_ratio(false, RESIZE_AMOUNT))
@@ -994,7 +993,7 @@ void resize_down(void) {
 
 	node_t *n = mon->desk->focus;
 	if (n->parent == NULL) {
-		wlr_log(WLR_ERROR, "resize_down: no parent node");
+		wlr_log(WLR_ERROR, "No parent for down resize of node %u", n->id);
 		return;
 	}
 
@@ -1004,8 +1003,8 @@ void resize_down(void) {
 	for (child = p; p != NULL && p->split_type != TYPE_HORIZONTAL; p = p->parent)
 		;
 
-	wlr_log(WLR_INFO, "resize_down: node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f",
-		n->id, p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
+	wlr_log(WLR_INFO, "Node=%u ancestor=%u split_type=%d is_first=%d ratio_before=%f", n->id,
+		p ? p->id : 0, p ? (int)p->split_type : -1, p ? is_first_child(child) : -1,
 		p ? p->split_ratio : 0.0f);
 
 	if (p != NULL) {
@@ -1013,11 +1012,11 @@ void resize_down(void) {
 		if (ratio > 0.9)
 			ratio = 0.9;
 		node_set_split_ratio(p, ratio);
-		wlr_log(WLR_INFO, "resize_down: ratio_after=%f", p->split_ratio);
+		wlr_log(WLR_INFO, "Ratio after=%f for down resize of node %u", p->split_ratio, p->id);
 		arrange(mon, mon->desk, true);
 		wlr_log(WLR_INFO, "Resized down");
 	} else {
-		wlr_log(WLR_ERROR, "resize_down: no HORIZONTAL ancestor found");
+		wlr_log(WLR_ERROR, "No horizontal ancestor for down resize of node %u", n->id);
 	}
 }
 

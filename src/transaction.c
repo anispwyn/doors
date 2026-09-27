@@ -53,8 +53,8 @@ static void transaction_destroy(transaction_t *txn) {
 	wl_list_for_each_safe(instruction, tmp, &txn->instructions, link) {
 		node_t *node = instruction->node;
 
-		wlr_log(WLR_DEBUG, "transaction_destroy: node %u ntxnrefs=%zu destroying=%d", node->id,
-			(size_t)node->ntxnrefs, node->destroying);
+		wlr_log(WLR_DEBUG, "Node %u ntxnrefs=%zu destroying=%d", node->id, (size_t)node->ntxnrefs,
+			node->destroying);
 
 		if (is_pending)
 			node->pending_inst = NULL;
@@ -65,7 +65,7 @@ static void transaction_destroy(transaction_t *txn) {
 			node->instruction = NULL;
 
 		if (node->destroying && node->ntxnrefs == 0) {
-			wlr_log(WLR_DEBUG, "transaction_destroy: freeing destroying node %u", node->id);
+			wlr_log(WLR_DEBUG, "Freeing destroying node %u", node->id);
 			free_node(node);
 		}
 
@@ -129,8 +129,8 @@ static void transaction_add_node(transaction_t *txn, node_t *node, bool server_r
 	// instruction is updated at commit
 	node->pending_inst = instruction;
 	node->ntxnrefs++;
-	wlr_log(WLR_DEBUG, "transaction_add_node: node %u ntxnrefs=%zu destroying=%d", node->id,
-		(size_t)node->ntxnrefs, node->destroying);
+	wlr_log(WLR_DEBUG, "Node %u ntxnrefs=%zu destroying=%d", node->id, (size_t)node->ntxnrefs,
+		node->destroying);
 
 	wl_list_insert(&txn->instructions, &instruction->link);
 }
@@ -381,7 +381,7 @@ static bool should_skip_node(node_t *node) {
 
 static void transaction_apply(transaction_t *txn) {
 	if (!txn) {
-		wlr_log(WLR_ERROR, "transaction_apply called with NULL txn");
+		wlr_log(WLR_ERROR, "Cannot apply a NULL transaction");
 		return;
 	}
 
@@ -440,7 +440,7 @@ static bool should_configure(node_t *node, transaction_inst_t *instruction) {
 
 	// always configure if new window
 	if (!node->client->view->configured) {
-		wlr_log(WLR_DEBUG, "should_configure node %u: NEW window, needs configure", node->id);
+		wlr_log(WLR_DEBUG, "Node %u is a new window and needs a configure", node->id);
 		return true;
 	}
 
@@ -467,9 +467,9 @@ static bool should_configure(node_t *node, transaction_inst_t *instruction) {
 	int client_h = node->client->view->geometry.height;
 	bool size_changed = client_w != target_rect.width || client_h != target_rect.height;
 
-	wlr_log(WLR_DEBUG, "should_configure node %u: client_geometry=(%dx%d) target=(%dx%d) "
-		"last_requested=(%dx%d) changed=%d", node->id, client_w, client_h, target_rect.width,
-			target_rect.height, node->client->view->last_requested.width,
+	wlr_log(WLR_DEBUG, "Node %u configure check: client_geometry=(%dx%d) "
+		"target=(%dx%d) last_requested=(%dx%d) changed=%d", node->id, client_w, client_h,
+			target_rect.width, target_rect.height, node->client->view->last_requested.width,
 			node->client->view->last_requested.height, size_changed);
 
 	if (!size_changed)
@@ -477,8 +477,7 @@ static bool should_configure(node_t *node, transaction_inst_t *instruction) {
 
 	if (node->client->view->last_requested.width == target_rect.width &&
 			node->client->view->last_requested.height == target_rect.height) {
-		wlr_log(WLR_DEBUG, "should_configure node %u: target unchanged since last configure, skipping",
-			node->id);
+		wlr_log(WLR_DEBUG, "Node %u target unchanged since last configure, skipping", node->id);
 		return false;
 	}
 
@@ -539,7 +538,7 @@ static void transaction_commit(transaction_t *txn) {
 	if (!txn)
 		return;
 
-	wlr_log(WLR_DEBUG, "transaction_commit: txn=%p with %zu instructions", (void *)txn,
+	wlr_log(WLR_DEBUG, "Txn=%p with %zu instructions", (void *)txn,
 		(size_t)wl_list_length(&txn->instructions));
 
 	if (settings.debug_txn_timings)
@@ -599,16 +598,16 @@ static void transaction_commit(transaction_t *txn) {
 
 	txn->num_configures = num_configures;
 
-	wlr_log(WLR_DEBUG,
-		"Transaction committing with %zu configures (%zu total instructions), waiting=%zu", num_configures,
-		(size_t)wl_list_length(&txn->instructions), txn->num_waiting);
+	wlr_log(WLR_DEBUG, "Transaction committing with %zu configures (%zu total "
+		"instructions), waiting=%zu", num_configures, (size_t)wl_list_length(&txn->instructions),
+			txn->num_waiting);
 
 	// debug overrides
 	if (settings.debug_noatomic) {
-		wlr_log(WLR_DEBUG, "debug_noatomic: forcing immediate apply");
+		wlr_log(WLR_DEBUG, "Forcing immediate apply");
 		txn->num_waiting = 0;
 	} else if (settings.debug_txn_wait) {
-		wlr_log(WLR_DEBUG, "debug_txn_wait: forcing transaction timeout");
+		wlr_log(WLR_DEBUG, "Forcing transaction timeout");
 		txn->num_waiting += 1000000;
 	}
 
@@ -664,7 +663,7 @@ static void _transaction_commit_dirty(bool server_request) {
 }
 
 void transaction_commit_dirty(void) {
-	wlr_log(WLR_DEBUG, "transaction_commit_dirty called with %zu dirty nodes", txn_state.dirty_count);
+	wlr_log(WLR_DEBUG, "Committing %zu dirty nodes", txn_state.dirty_count);
 	_transaction_commit_dirty(true);
 }
 
@@ -714,8 +713,7 @@ void transaction_notify_view_unmapped(node_t *node) {
 	set_instruction_ready(instruction);
 }
 
-bool transaction_notify_view_ready_by_geometry(view_t *view, int x, int y, int width,
-		int height) {
+bool transaction_notify_view_ready_by_geometry(view_t *view, int x, int y, int width, int height) {
 	if (!view || !view->node)
 		return false;
 
@@ -749,15 +747,14 @@ void transaction_add_dirty_node(node_t *node) {
 		txn_state.dirty_capacity = txn_state.dirty_capacity == 0 ? 32 : txn_state.dirty_capacity * 2;
 		node_t **new_nodes = realloc(txn_state.dirty_nodes, txn_state.dirty_capacity * sizeof(node_t *));
 		if (!new_nodes) {
-			wlr_log(WLR_ERROR, "failed to realloc dirty nodes array");
+			wlr_log(WLR_ERROR, "Failed to realloc dirty nodes array");
 			return;
 		}
 		txn_state.dirty_nodes = new_nodes;
 	}
 	txn_state.dirty_nodes[txn_state.dirty_count++] = node;
 
-	wlr_log(WLR_DEBUG, "transaction_add_dirty_node: node %u (total=%zu)", node->id,
-		txn_state.dirty_count);
+	wlr_log(WLR_DEBUG, "Node %u (total=%zu)", node->id, txn_state.dirty_count);
 }
 
 void transaction_init(void) {

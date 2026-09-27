@@ -1025,14 +1025,13 @@ void scroller_set_proportion(client_t *client, float proportion) {
 	if (!client)
 		return;
 	(void)proportion;
-	wlr_log(WLR_DEBUG, "scroller_set_proportion: stub (client=%p prop=%.2f)", (void *)client,
-		proportion);
+	wlr_log(WLR_DEBUG, "Stub (client=%p prop=%.2f)", (void *)client, proportion);
 }
 
 void scroller_cycle_proportion_preset(client_t *client) {
 	if (!client || !scroller_proportion_preset || scroller_proportion_preset_count == 0)
 		return;
-	wlr_log(WLR_DEBUG, "scroller_cycle_proportion_preset: stub");
+	wlr_log(WLR_DEBUG, "Stub");
 }
 
 int scroller_collect(desktop_t *d, node_t ***out_nodes) {

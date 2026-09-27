@@ -193,26 +193,26 @@ static void block_out_surface(node_t *node, struct wlr_scene_tree *scene_tree,
 		const char *transform_msg) {
 	if (!node || !node->client) {
 		if (log_debug)
-			wlr_log(WLR_DEBUG, "block_out: no node/client for toplevel %p", (void *)node);
+			wlr_log(WLR_DEBUG, "No node/client for toplevel %p", (void *)node);
 		return;
 	}
 
 	client_t *c = node->client;
 	if (!c->flags.block_out_from_screenshare) {
 		if (log_debug)
-			wlr_log(WLR_DEBUG, "block_out: %s not blocked", c->title);
+			wlr_log(WLR_DEBUG, "%s not blocked", c->title);
 		return;
 	}
 	if (!c->flags.shown && c->state != STATE_FULLSCREEN) {
 		if (log_debug)
-			wlr_log(WLR_DEBUG, "block_out: %s not shown (state=%d)", c->title, c->state);
+			wlr_log(WLR_DEBUG, "%s not shown (state=%d)", c->title, c->state);
 		return;
 	}
 
 	output_t *o = output_from_wlr_output(output);
 	if (!o) {
 		if (log_debug)
-			wlr_log(WLR_DEBUG, "block_out: no output_t for wlr_output %p", (void *)output);
+			wlr_log(WLR_DEBUG, "No output_t for wlr_output %p", (void *)output);
 		return;
 	}
 
@@ -244,9 +244,9 @@ static void block_out_surface(node_t *node, struct wlr_scene_tree *scene_tree,
 	int buf_h = (win_rect.height + 2 * bw) * scale;
 
 	if (log_debug)
-		wlr_log(WLR_DEBUG, "block_out_window: x=%d y=%d w=%d h=%d"
-			" bw=%d scale=%f buf_x=%d buf_y=%d buf_w=%d buf_h=%d", win_rect.x, win_rect.y, win_rect.width,
-				win_rect.height, bw, scale, buf_x, buf_y, buf_w, buf_h);
+		wlr_log(WLR_DEBUG, "X=%d y=%d w=%d h=%d bw=%d scale=%f "
+			"buf_x=%d buf_y=%d buf_w=%d buf_h=%d", win_rect.x, win_rect.y, win_rect.width, win_rect.height,
+				bw, scale, buf_x, buf_y, buf_w, buf_h);
 
 	struct wlr_box block_box = {
 		.x = buf_x,
@@ -258,7 +258,7 @@ static void block_out_surface(node_t *node, struct wlr_scene_tree *scene_tree,
 	enum wl_output_transform transform = wlr_output_transform_invert(output->transform);
 	if (transform != WL_OUTPUT_TRANSFORM_NORMAL) {
 		(void)transform;
-		wlr_log(WLR_DEBUG, "screencopy block-out: skipped %s on transformed output", transform_msg);
+		wlr_log(WLR_DEBUG, "Screencopy block-out: skipped %s on transformed output", transform_msg);
 		return;
 	}
 
@@ -335,13 +335,13 @@ static void frame_handle_output_commit(struct wl_listener *listener, void *data)
 		},
 	});
 
-	wlr_log(WLR_DEBUG, "screencopy: calling block_out_windows before submit");
+	wlr_log(WLR_DEBUG, "Calling block_out_windows before submit");
 	block_out_windows(pass, output);
 
 	bool ok = wlr_render_pass_submit(pass);
 	wlr_texture_destroy(texture);
 
-	wlr_log(WLR_DEBUG, "screencopy: output commit render pass ok=%d", ok);
+	wlr_log(WLR_DEBUG, "Output commit render pass ok=%d", ok);
 
 	if (!ok) {
 		wlr_log(WLR_DEBUG, "Failed to render to destination buffer");
@@ -551,7 +551,8 @@ static void capture_output(struct wl_client *wl_client, screencopy_client_t *cli
 	wlr_texture_destroy(tex);
 
 	if (frame->shm_format == DRM_FORMAT_INVALID) {
-		wlr_log(WLR_ERROR, "Failed to capture output: no read format supported by renderer");
+		wlr_log(WLR_ERROR, "Failed to capture output %s: no read format supported by renderer",
+			output->name);
 		goto error;
 	}
 

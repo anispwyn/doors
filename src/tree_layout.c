@@ -122,7 +122,7 @@ static bool repair_split_node(node_t *n, desktop_t *d, output_t *m, struct wlr_b
 
 	if ((first_ok && !second_ok) || (!first_ok && second_ok)) {
 		node_t *valid = first_ok ? n->first_child : n->second_child;
-		wlr_log(WLR_ERROR, "apply_layout: node %u has only one valid child - "
+		wlr_log(WLR_ERROR, "Node %u has only one valid child - "
 			"promoting child %u; this indicates a tree inconsistency that "
 			"should have been resolved by remove_node", n->id, valid->id);
 
@@ -252,7 +252,7 @@ void apply_layout(output_t *m, desktop_t *d, node_t *n, struct wlr_box rect,
 
 	if (is_leaf(n)) {
 		if (n->client == NULL) {
-			wlr_log(WLR_ERROR, "apply_layout: node %u has NULL client, returning early", n->id);
+			wlr_log(WLR_ERROR, "Node %u has NULL client, returning early", n->id);
 			return;
 		}
 

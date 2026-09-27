@@ -19,8 +19,7 @@ spring_curve_t *spring_add(const char *name, double stiffness, double damping, d
 		existing->mass = mass;
 		existing->value_epsilon = value_epsilon;
 		existing->velocity_epsilon = velocity_epsilon;
-		wlr_log(WLR_DEBUG, "spring: updated '%s' (k=%.1f, d=%.1f, m=%.1f)", name, stiffness, damping,
-			mass);
+		wlr_log(WLR_DEBUG, "Updated '%s' (k=%.1f, d=%.1f, m=%.1f)", name, stiffness, damping, mass);
 		return existing;
 	}
 
@@ -35,7 +34,7 @@ spring_curve_t *spring_add(const char *name, double stiffness, double damping, d
 	c->value_epsilon = value_epsilon;
 	c->velocity_epsilon = velocity_epsilon;
 	wl_list_insert(&springs, &c->link);
-	wlr_log(WLR_DEBUG, "spring: added '%s' (k=%.1f, d=%.1f, m=%.1f)", name, stiffness, damping, mass);
+	wlr_log(WLR_DEBUG, "Added '%s' (k=%.1f, d=%.1f, m=%.1f)", name, stiffness, damping, mass);
 	return c;
 }
 

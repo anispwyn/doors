@@ -152,7 +152,7 @@ static void handle_pointer_constraint(struct wl_listener *listener, void *data) 
 
 	pointer_constraint_t *pointer_constraint = calloc(1, sizeof(*pointer_constraint));
 	if (!pointer_constraint) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 	pointer_constraint->constraint = constraint;

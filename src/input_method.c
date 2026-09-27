@@ -243,7 +243,7 @@ static void handle_input_method_new_popup_surface(struct wl_listener *listener, 
 
 	ime_popup_t *popup = calloc(1, sizeof(*popup));
 	if (!popup) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 	popup->popup_surface = data;
@@ -360,7 +360,7 @@ static void handle_new_text_input(struct wl_listener *listener, void *data) {
 	struct wlr_text_input_v3 *wlr_text_input = data;
 	ime_text_t *text_input = calloc(1, sizeof(*text_input));
 	if (!text_input) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return;
 	}
 
@@ -395,7 +395,7 @@ static void handle_focused_surface_destroy(struct wl_listener *listener, void *d
 ime_relay_t *input_method_relay_create(struct wlr_seat *wlr_seat) {
 	ime_relay_t *relay = calloc(1, sizeof(*relay));
 	if (!relay) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return NULL;
 	}
 	relay->wlr_seat = wlr_seat;

@@ -414,7 +414,7 @@ static void gs_hotkey_handle_commit(struct wl_client *client, struct wl_resource
 	gs_client_t *c = gs_client_for_wl_client(wl_resource_get_client(resource));
 
 	if (!gs_trigger_permitted(h)) {
-		wlr_log(WLR_DEBUG, "xx-hotkey-v1: denying %s shortcut for %s (not permitted)",
+		wlr_log(WLR_DEBUG, "Denying %s shortcut for %s (not permitted)",
 			h->kind == TRIG_KEY ? "key" : "button", c && c->app_id ? c->app_id : "(unidentified)");
 		xx_hotkey_v1_send_denied(h->resource, XX_HOTKEY_V1_DENY_REASON_NOT_PERMITTED,
 			"trigger is not permitted (bind with ctrl/alt/super, or use a function/"
@@ -570,7 +570,7 @@ void global_shortcuts_init(void) {
 	gs.global = wl_global_create(server.wl_display, &xx_hotkey_manager_v1_interface, GS_HOTKEY_VERSION,
 		NULL, gs_bind_manager);
 	if (!gs.global) {
-		wlr_log(WLR_ERROR, "xx-hotkey-v1: failed to create global");
+		wlr_log(WLR_ERROR, "Failed to create global");
 		return;
 	}
 	wl_list_init(&gs.display_destroy.link);

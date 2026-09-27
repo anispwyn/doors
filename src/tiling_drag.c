@@ -124,7 +124,7 @@ void tiling_drag_begin(node_t *node) {
 	if (!node || !node->client || !IS_TILED(node->client))
 		return;
 
-	wlr_log(WLR_DEBUG, "tiling_drag_begin: node=%u app_id=%s", node->id, node->client->app_id);
+	wlr_log(WLR_DEBUG, "Node=%u app_id=%s", node->id, node->client->app_id);
 
 	server.cursor_mode = CURSOR_TILING_DRAG;
 	server.tiling_drag_node = node;
@@ -187,7 +187,7 @@ void tiling_drag_finish(void) {
 		return;
 	}
 
-	wlr_log(WLR_DEBUG, "tiling_drag_finish: dragged=%u target=%u edge=%d", dragged->id, target->id,
+	wlr_log(WLR_DEBUG, "Dragged=%u target=%u edge=%d", dragged->id, target->id,
 		server.tiling_drag_target_edge);
 
 	enum wlr_edges edge = server.tiling_drag_target_edge;

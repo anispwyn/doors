@@ -148,7 +148,7 @@ static animation_entry_t *create_animation_entry(void) {
 	entry->from_opacity = 1.0f;
 	entry->to_opacity = 1.0f;
 	wl_list_insert(&animations, &entry->link);
-	wlr_log(WLR_DEBUG, "animation: created entry %p", (void *)entry);
+	wlr_log(WLR_DEBUG, "Created entry %p", (void *)entry);
 	return entry;
 }
 
@@ -182,9 +182,9 @@ void animation_set_bezier(const char *name) {
 	if (name && name[0] != '\0') {
 		if (bezier_exists(name)) {
 			snprintf(default_bezier_name, sizeof(default_bezier_name), "%s", name);
-			wlr_log(WLR_DEBUG, "animation: default bezier set to '%s'", name);
+			wlr_log(WLR_DEBUG, "Default bezier set to '%s'", name);
 		} else {
-			wlr_log(WLR_ERROR, "animation: no such bezier curve '%s'", name);
+			wlr_log(WLR_ERROR, "No such bezier curve '%s'", name);
 		}
 	}
 }
@@ -196,7 +196,7 @@ const char *animation_get_bezier(void) {
 void animation_set_duration(uint32_t ms) {
 	if (ms > 0) {
 		ANIMATION_DURATION_MS = ms;
-		wlr_log(WLR_DEBUG, "animation: default duration set to %u ms", ms);
+		wlr_log(WLR_DEBUG, "Default duration set to %u ms", ms);
 	}
 }
 
@@ -315,7 +315,7 @@ void animation_cancel_node(node_t *node) {
 	if (!entry)
 		return;
 
-	wlr_log(WLR_DEBUG, "animation: cancel node %u entry=%p", node ? node->id : 0, (void *)entry);
+	wlr_log(WLR_DEBUG, "Cancel node %u entry=%p", node ? node->id : 0, (void *)entry);
 
 	if (entry->kind == ANIM_KIND_RESIZE && entry->view && entry->view->content_tree)
 		wlr_scene_subsurface_tree_set_clip(&entry->view->content_tree->node, NULL);
@@ -337,7 +337,7 @@ void animation_cancel_view(view_t *view) {
 			entry->scene_tree != view->content_tree)
 			continue;
 
-		wlr_log(WLR_DEBUG, "animation: cancel toplevel entry=%p node=%u", (void *)entry,
+		wlr_log(WLR_DEBUG, "Cancel toplevel entry=%p node=%u", (void *)entry,
 			entry->node ? entry->node->id : 0);
 
 		if (entry->from_opacity != entry->to_opacity && entry->scene_tree) {
@@ -402,7 +402,7 @@ bool animation_fade_in(view_t *view) {
 
 	surface_set_opacity(&view->scene_tree->node, 0.0f);
 
-	wlr_log(WLR_DEBUG, "animation: fade_in entry=%p", (void *)entry);
+	wlr_log(WLR_DEBUG, "Fade_in entry=%p", (void *)entry);
 	schedule_output(view->node->output);
 	return true;
 }
@@ -430,7 +430,7 @@ bool animation_fade_in_layer(layer_surface_t *layer) {
 
 	surface_set_opacity(&layer->scene_tree->node, 0.0f);
 
-	wlr_log(WLR_DEBUG, "animation: fade_in_layer entry=%p", (void *)entry);
+	wlr_log(WLR_DEBUG, "Fade_in_layer entry=%p", (void *)entry);
 	schedule_output(entry->output);
 	return true;
 }
@@ -459,7 +459,7 @@ bool animation_fade_out(view_t *view) {
 	entry->duration_ms = ANIMATION_DURATION_MS;
 	apply_config_to_entry(entry, 3);
 
-	wlr_log(WLR_DEBUG, "animation: fade_out entry=%p", (void *)entry);
+	wlr_log(WLR_DEBUG, "Fade_out entry=%p", (void *)entry);
 	schedule_output(entry->output);
 	return true;
 }
@@ -486,7 +486,7 @@ bool animation_fade_out_layer(layer_surface_t *layer) {
 	entry->duration_ms = ANIMATION_DURATION_MS;
 	apply_config_to_entry(entry, 5);
 
-	wlr_log(WLR_DEBUG, "animation: fade_out_layer entry=%p saved_tree=%p", (void *)entry,
+	wlr_log(WLR_DEBUG, "Fade_out_layer entry=%p saved_tree=%p", (void *)entry,
 		(void *)layer->saved_tree);
 	schedule_output(entry->output);
 	return true;
@@ -534,7 +534,7 @@ bool animation_start_workspace_slide(output_t *output, node_t *node,
 		entry->from_opacity = node->client->opacity;
 		entry->to_opacity = node->client->opacity;
 		schedule_output(output);
-		wlr_log(WLR_DEBUG, "animation: workspace_slide update entry=%p node=%u from=(%d,%d) to=(%d,%d)",
+		wlr_log(WLR_DEBUG, "Workspace_slide update entry=%p node=%u from=(%d,%d) to=(%d,%d)",
 			(void *)entry, node->id, entry->from.x, entry->from.y, to.x, to.y);
 		return true;
 	}
@@ -558,8 +558,8 @@ bool animation_start_workspace_slide(output_t *output, node_t *node,
 
 	wlr_scene_node_set_position(&scene_tree->node, entry->from.x, entry->from.y);
 	schedule_output(output);
-	wlr_log(WLR_DEBUG, "animation: workspace_slide entry=%p node=%u from=(%d,%d) to=(%d,%d)",
-		(void *)entry, node->id, from.x, from.y, to.x, to.y);
+	wlr_log(WLR_DEBUG, "Workspace_slide entry=%p node=%u from=(%d,%d) to=(%d,%d)", (void *)entry,
+		node->id, from.x, from.y, to.x, to.y);
 	return true;
 }
 
@@ -628,7 +628,7 @@ bool animation_start_resize(view_t *view, struct wlr_box from, struct wlr_box to
 
 	update_resize_entry(entry);
 
-	wlr_log(WLR_DEBUG, "animation: start resize entry=%p node=%u from=(%d,%d %dx%d) to=(%d,%d %dx%d)",
+	wlr_log(WLR_DEBUG, "Start resize entry=%p node=%u from=(%d,%d %dx%d) to=(%d,%d %dx%d)",
 		(void *)entry, entry->node ? entry->node->id : 0, from.x, from.y, from.width, from.height, to.x,
 		to.y, to.width, to.height);
 
@@ -1038,7 +1038,7 @@ bool animation_update_output(output_t *output, struct timespec now) {
 	wl_list_for_each_safe(entry, tmp, &animations, link) {
 		if (!entry->node) {
 			if (entry->output != output) {
-				wlr_log(WLR_DEBUG, "animation: skip entry=%p output mismatch", (void *)entry);
+				wlr_log(WLR_DEBUG, "Skip entry=%p output mismatch", (void *)entry);
 				continue;
 			}
 
@@ -1100,7 +1100,7 @@ bool animation_update_output(output_t *output, struct timespec now) {
 				// surface doesn't lose its clip until the next client commit
 				if (entry->view)
 					view_center_and_clip_surface(entry->view);
-				wlr_log(WLR_DEBUG, "animation: resize complete entry=%p node=%u", (void *)entry,
+				wlr_log(WLR_DEBUG, "Resize complete entry=%p node=%u", (void *)entry,
 					entry->node ? entry->node->id : 0);
 				wl_list_remove(&entry->link);
 				free(entry);
@@ -1132,8 +1132,7 @@ bool animation_update_output(output_t *output, struct timespec now) {
 						entry->node->client) {
 					entry->node->client->flags.shown = false;
 					wlr_scene_node_set_enabled(&entry->scene_tree->node, false);
-					wlr_log(WLR_DEBUG, "animation: workspace slide-out complete, disabled node=%u",
-						entry->node->id);
+					wlr_log(WLR_DEBUG, "Workspace slide-out complete, disabled node=%u", entry->node->id);
 				}
 
 				wl_list_remove(&entry->link);

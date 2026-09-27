@@ -71,7 +71,7 @@ uint32_t parse_modifiers(const char *mod_str) {
 
 	char *tmp = strdup(mod_str);
 	if (!tmp) {
-		wlr_log(WLR_ERROR, "allocation failed");
+		wlr_log(WLR_ERROR, "Allocation failed");
 		return 0;
 	}
 	char *saveptr;
@@ -647,8 +647,8 @@ static void parse_hotkey_line(const char *hotkey_str, const char *command_str) {
 	expand_braces(hotkey_buf, &hk_expansions);
 	expand_braces(command_buf, &cmd_expansions);
 
-	wlr_log(WLR_DEBUG, "parse_hotkey_line: hotkey=[%s] cmd=[%s] hk_expans=%zu cmd_expans=%zu",
-		hotkey_buf, command_buf, hk_expansions.count, cmd_expansions.count);
+	wlr_log(WLR_DEBUG, "Hotkey=[%s] cmd=[%s] hk_expans=%zu cmd_expans=%zu", hotkey_buf, command_buf,
+		hk_expansions.count, cmd_expansions.count);
 
 	size_t num_pairs = 0;
 
@@ -669,7 +669,7 @@ static void parse_hotkey_line(const char *hotkey_str, const char *command_str) {
 		const char *single_cmd = (cmd_expansions.count > 0) ? cmd_expansions.strings[i %
 			cmd_expansions.count] : command_buf;
 
-		wlr_log(WLR_DEBUG, "  pair %zu: hotkey=[%s] cmd=[%s]", i, single_hotkey, single_cmd);
+		wlr_log(WLR_DEBUG, "  Pair %zu: hotkey=[%s] cmd=[%s]", i, single_hotkey, single_cmd);
 
 		uint32_t modifiers = 0;
 		xkb_keysym_t keysym = XKB_KEY_NoSymbol;
@@ -787,7 +787,7 @@ static void flush_pending_bind(struct pending_bind *p) {
 }
 
 void load_hotkeys(const char *config_path) {
-	wlr_log(WLR_DEBUG, "load_hotkeys called with path: %s", config_path);
+	wlr_log(WLR_DEBUG, "Loading hotkeys from path: %s", config_path);
 	FILE *f = fopen(config_path, "r");
 	if (!f) {
 		wlr_log(WLR_INFO, "No hotkey config found at %s", config_path);
@@ -911,9 +911,9 @@ void load_hotkeys(const char *config_path) {
 	current_parsing_submap = NULL;
 
 	fclose(f);
-	wlr_log(WLR_INFO,
-		"Loaded %zu keybinds, %zu gesturebinds, %zu hotcornerbinds and %zu submaps from %s", num_keybinds,
-		num_gesturebinds, num_hotcornerbinds, num_submaps, config_path);
+	wlr_log(WLR_INFO, "Loaded %zu keybinds, %zu gesturebinds, %zu hotcornerbinds "
+		"and %zu submaps from %s", num_keybinds, num_gesturebinds, num_hotcornerbinds, num_submaps,
+			config_path);
 }
 
 static void setup_inotify_watch(const char *config_path) {

@@ -9,8 +9,8 @@
 #include "seat.h"
 #include "server.h"
 #include "surface.h"
-#include "tabs.h"
 #include "tablet.h"
+#include "tabs.h"
 #include "tree.h"
 #include "tree_layout.h"
 #include "view.h"
@@ -291,8 +291,8 @@ void view_create_foreign_toplevels(view_t *view, const char *app_id, const char 
 		.title = title,
 	};
 
-	view->ext_foreign_toplevel =
-		wlr_ext_foreign_toplevel_handle_v1_create(server.foreign_toplevel_list, &ext_state);
+	view->ext_foreign_toplevel = wlr_ext_foreign_toplevel_handle_v1_create(server.foreign_toplevel_list,
+		&ext_state);
 	if (view->ext_foreign_toplevel) {
 		view->ext_foreign_toplevel->data = view;
 		view->foreign_identifier = view->ext_foreign_toplevel->identifier;
@@ -624,7 +624,7 @@ static void save_buffer_iterator(struct wlr_scene_buffer *buffer, int sx, int sy
 	struct wlr_scene_tree *tree = data;
 
 	buffer_copy_count++;
-	wlr_log(WLR_DEBUG, "save_buffer_iterator called: buffer=%p, sx=%d, sy=%d", (void *)buffer, sx, sy);
+	wlr_log(WLR_DEBUG, "Buffer save: buffer=%p, sx=%d, sy=%d", (void *)buffer, sx, sy);
 
 	// ignore buffers with no content
 	if (!buffer->buffer) {
@@ -634,7 +634,7 @@ static void save_buffer_iterator(struct wlr_scene_buffer *buffer, int sx, int sy
 
 	struct wlr_scene_buffer *sbuf = wlr_scene_buffer_create(tree, NULL);
 	if (!sbuf) {
-		wlr_log(WLR_ERROR, "Could not allocate a scene buffer when saving a surface");
+		wlr_log(WLR_ERROR, "Could not allocate a scene buffer when saving surface %p", (void *)tree);
 		return;
 	}
 
@@ -662,7 +662,7 @@ void view_save_buffer(view_t *view) {
 
 	view->saved_surface_tree = wlr_scene_tree_create(view->scene_tree);
 	if (!view->saved_surface_tree) {
-		wlr_log(WLR_ERROR, "Could not allocate a scene tree node when saving a surface");
+		wlr_log(WLR_ERROR, "Could not allocate a scene tree node when saving surface %p", (void *)view);
 		return;
 	}
 
@@ -755,7 +755,7 @@ bool view_init(view_t *view, view_type_t type) {
 	// create parent scene tree container
 	view->scene_tree = wlr_scene_tree_create(server.tile_tree);
 	if (!view->scene_tree) {
-		wlr_log(WLR_ERROR, "Failed to create scene tree for view");
+		wlr_log(WLR_ERROR, "Failed to create scene tree for view %p", (void *)view);
 		return false;
 	}
 
@@ -765,7 +765,7 @@ bool view_init(view_t *view, view_type_t type) {
 	// create content tree as child
 	view->content_tree = wlr_scene_tree_create(view->scene_tree);
 	if (!view->content_tree) {
-		wlr_log(WLR_ERROR, "Failed to create content tree for view");
+		wlr_log(WLR_ERROR, "Failed to create content tree for view %p", (void *)view);
 		wlr_scene_node_destroy(&view->scene_tree->node);
 		view->scene_tree = NULL;
 		return false;
@@ -780,7 +780,7 @@ bool view_init(view_t *view, view_type_t type) {
 
 	view->output_handler = wlr_scene_buffer_create(view->scene_tree, NULL);
 	if (!view->output_handler) {
-		wlr_log(WLR_ERROR, "Failed to create output handler for view");
+		wlr_log(WLR_ERROR, "Failed to create output handler for view %p", (void *)view);
 	} else {
 		view->output_handler->point_accepts_input = view_output_handler_point_accepts_input;
 		view->outputs_update.notify = view_handle_outputs_update;

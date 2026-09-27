@@ -115,8 +115,7 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 			bool include = true;
 			if (filter_node && view->node != filter_node)
 				include = false;
-			if (filter_desk && view->node && view->node->output &&
-				view->node->output->desk != filter_desk)
+			if (filter_desk && view->node && view->node->output && view->node->output->desk != filter_desk)
 				include = false;
 			if (filter_mon && view->node && view->node->output != filter_mon)
 				include = false;
@@ -165,8 +164,7 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 			bool include = true;
 			if (filter_node && view->node != filter_node)
 				include = false;
-			if (filter_desk && view->node && view->node->output &&
-				view->node->output->desk != filter_desk)
+			if (filter_desk && view->node && view->node->output && view->node->output->desk != filter_desk)
 				include = false;
 			if (filter_mon && view->node && view->node->output != filter_mon)
 				include = false;
@@ -181,8 +179,7 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 					offset += snprintf(buf + offset, sizeof(buf) - offset, "%s\n", name);
 				} else {
 					offset += snprintf(buf + offset, sizeof(buf) - offset, "%u %s\n",
-						view->node ? view->node->id : 0,
-						view->foreign_identifier ? view->foreign_identifier : "?");
+						view->node ? view->node->id : 0, view->foreign_identifier ? view->foreign_identifier : "?");
 				}
 			}
 		}

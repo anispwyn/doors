@@ -73,7 +73,7 @@ static void send_response(int client_fd, bool success, const char *msg) {
 		offset += len;
 	}
 
-	wlr_log(WLR_DEBUG, "IPC: sending response: %.*s", (int)(offset - 1), buf + 1);
+	wlr_log(WLR_DEBUG, "Sending response: %.*s", (int)(offset - 1), buf + 1);
 	ipc_write_all(client_fd, buf, offset);
 }
 
@@ -87,12 +87,12 @@ void send_failure(int client_fd, const char *msg) {
 
 void ipc_handle_incoming(int client_fd) {
 	char msg[DOORS_BUFSIZ];
-	wlr_log(WLR_DEBUG, "IPC: handling incoming connection");
+	wlr_log(WLR_DEBUG, "Handling incoming connection");
 	ssize_t n = recv(client_fd, msg, sizeof(msg) - 1, 0);
-	wlr_log(WLR_DEBUG, "IPC: received %zd bytes", n);
+	wlr_log(WLR_DEBUG, "Received %zd bytes", n);
 
 	if (n <= 0) {
-		wlr_log(WLR_DEBUG, "IPC: no data received, closing");
+		wlr_log(WLR_DEBUG, "No data received, closing");
 		close(client_fd);
 		return;
 	}

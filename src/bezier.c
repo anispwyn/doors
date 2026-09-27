@@ -59,8 +59,7 @@ bezier_curve_t *bezier_add(const char *name, double p1x, double p1y, double p2x,
 		existing->p2x = p2x;
 		existing->p2y = p2y;
 		bake_curve(existing);
-		wlr_log(WLR_DEBUG, "bezier: updated '%s' with P1=(%.3f,%.3f) P2=(%.3f,%.3f)", name, p1x, p1y, p2x,
-			p2y);
+		wlr_log(WLR_DEBUG, "Updated '%s' with P1=(%.3f,%.3f) P2=(%.3f,%.3f)", name, p1x, p1y, p2x, p2y);
 		return existing;
 	}
 
@@ -76,8 +75,7 @@ bezier_curve_t *bezier_add(const char *name, double p1x, double p1y, double p2x,
 	bake_curve(curve);
 
 	wl_list_insert(&bezier_curves, &curve->link);
-	wlr_log(WLR_DEBUG, "bezier: added '%s' with P1=(%.3f,%.3f) P2=(%.3f,%.3f)", name, p1x, p1y, p2x,
-		p2y);
+	wlr_log(WLR_DEBUG, "Added '%s' with P1=(%.3f,%.3f) P2=(%.3f,%.3f)", name, p1x, p1y, p2x, p2y);
 	return curve;
 }
 

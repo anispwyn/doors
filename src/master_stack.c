@@ -249,7 +249,7 @@ static bool arrange_center(output_t *m, desktop_t *d, node_t **nodes, int mc, in
 	int side_capacity = left_count > right_count ? left_count : right_count;
 	node_t **side_nodes = calloc((size_t)side_capacity, sizeof(*side_nodes));
 	if (!side_nodes) {
-		wlr_log(WLR_ERROR, "master-stack side allocation failed");
+		wlr_log(WLR_ERROR, "Master-stack side allocation failed");
 		return false;
 	}
 
@@ -289,7 +289,7 @@ void master_stack_arrange(output_t *m, desktop_t *d, struct wlr_box available) {
 
 	struct wlr_box *geoms = calloc((size_t)count, sizeof(*geoms));
 	if (!geoms) {
-		wlr_log(WLR_ERROR, "master-stack geometry allocation failed");
+		wlr_log(WLR_ERROR, "Master-stack geometry allocation failed");
 		free(nodes);
 		return;
 	}

@@ -261,7 +261,7 @@ static struct vk_data *vk = NULL;
 static VkShaderModule vk_compile_shader(const char *glsl_src, VkShaderStageFlagBits stage) {
 	shaderc_compiler_t compiler = shaderc_compiler_initialize();
 	if (!compiler) {
-		wlr_log(WLR_ERROR, "vk: failed to init shaderc");
+		wlr_log(WLR_ERROR, "Failed to init shaderc");
 		return VK_NULL_HANDLE;
 	}
 
@@ -272,7 +272,7 @@ static VkShaderModule vk_compile_shader(const char *glsl_src, VkShaderStageFlagB
 		kind, "shader", "main", NULL);
 
 	if (shaderc_result_get_compilation_status(result) != shaderc_compilation_status_success) {
-		wlr_log(WLR_ERROR, "vk: shader error: %s", shaderc_result_get_error_message(result));
+		wlr_log(WLR_ERROR, "Shader error: %s", shaderc_result_get_error_message(result));
 		shaderc_result_release(result);
 		shaderc_compiler_release(compiler);
 		return VK_NULL_HANDLE;
@@ -472,7 +472,7 @@ static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage,
 			}
 		}
 		if (!have_any) {
-			wlr_log(WLR_INFO, "vk: no single-plane modifier supports fmt=%d usage=0x%x", fmt, usage);
+			wlr_log(WLR_INFO, "No single-plane modifier supports fmt=%d usage=0x%x", fmt, usage);
 			return false;
 		}
 		uint64_t want = prefer_linear ? (uint64_t)DRM_FORMAT_MOD_LINEAR : fallback_mod;
@@ -486,7 +486,7 @@ static bool vk_create_image(int w, int h, VkFormat fmt, VkImageUsageFlags usage,
 		mod_info.pNext = &eimg;
 		ci.pNext = &mod_info;
 		if (vkCreateImage(vk->device, &ci, NULL, &out->image) != VK_SUCCESS) {
-			wlr_log(WLR_INFO, "vk: modifier image creation failed (fmt=%d usage=0x%x mod=0x%llx)", fmt, usage,
+			wlr_log(WLR_INFO, "Modifier image creation failed (fmt=%d usage=0x%x mod=0x%llx)", fmt, usage,
 				(unsigned long long)want);
 			return false;
 		}
@@ -726,7 +726,7 @@ static void vk_draw_full(VkPipeline pipe, VkImage src_img, struct vk_fbo *dst, i
 	};
 	VkDescriptorSet ds;
 	if (vkAllocateDescriptorSets(vk->device, &dsai, &ds) != VK_SUCCESS) {
-		wlr_log(WLR_DEBUG, "vk: descriptor pool exhausted, skipping draw call %d/%d", vk->ds_idx[s],
+		wlr_log(WLR_DEBUG, "Descriptor pool exhausted, skipping draw call %d/%d", vk->ds_idx[s],
 			VK_MAX_DRAW_CALLS);
 		return;
 	}
@@ -892,7 +892,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	wl_list_init(&vk->pending_sb_destroys);
 
 	if (!wlr_renderer_is_vk(r)) {
-		wlr_log(WLR_INFO, "vk: renderer is not Vulkan");
+		wlr_log(WLR_INFO, "Renderer is not Vulkan");
 		free(vk);
 		vk = NULL;
 		return false;
@@ -908,7 +908,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		(PFN_vkGetImageDrmFormatModifierPropertiesEXT)vkGetDeviceProcAddr(vk->device,
 		"vkGetImageDrmFormatModifierPropertiesEXT");
 	if (!vk->vkGetMemoryFdKHR) {
-		wlr_log(WLR_ERROR, "vk: vkGetMemoryFdKHR unavailable (dma-buf export unsupported)");
+		wlr_log(WLR_ERROR, "VkGetMemoryFdKHR unavailable (dma-buf export unsupported)");
 		vkDestroyCommandPool(vk->device, vk->cmd_pool, NULL);
 		free(vk);
 		vk = NULL;
@@ -917,7 +917,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	VkPhysicalDeviceProperties props;
 	vkGetPhysicalDeviceProperties(vk->phys_dev, &props);
 	vk->vendor_id = props.vendorID;
-	wlr_log(WLR_INFO, "vk: GPU vendor=0x%x device=0x%x name=%s", props.vendorID, props.deviceID,
+	wlr_log(WLR_INFO, "GPU vendor=0x%x device=0x%x name=%s", props.vendorID, props.deviceID,
 		props.deviceName);
 
 	const struct wlr_drm_format_set *fmts = wlr_renderer_get_render_formats(r);
@@ -926,7 +926,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		vk->render_fmt = fmts ? wlr_drm_format_set_get(fmts, DRM_FORMAT_XRGB8888) : NULL;
 
 	if (!vk->render_fmt) {
-		wlr_log(WLR_ERROR, "vk: no render format");
+		wlr_log(WLR_ERROR, "No render format");
 		free(vk);
 		vk = NULL;
 		return false;
@@ -1110,7 +1110,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		*frag_shaders[i].dest = vk_compile_shader(frag_shaders[i].src, VK_SHADER_STAGE_FRAGMENT_BIT);
 
 	if (!vk->vert_module || !vk->frag_blit || !vk->frag_kawase || !vk->frag_corner_mask) {
-		wlr_log(WLR_ERROR, "vk: shaders failed to compile");
+		wlr_log(WLR_ERROR, "Shaders failed to compile");
 		return false;
 	}
 
@@ -1143,7 +1143,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 
 	if (!vk->pipe_blit || !vk->pipe_kawase || !vk->pipe_blur_down || !vk->pipe_blur_up ||
 			!vk->pipe_corner_mask || !vk->pipe_corner_mask_clear) {
-		wlr_log(WLR_ERROR, "vk: pipelines failed to create");
+		wlr_log(WLR_ERROR, "Pipelines failed to create");
 		return false;
 	}
 
@@ -1401,7 +1401,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	};
 	for (int i = 0; i < 3; i++) {
 		if (vkCreateFence(vk->device, &fci, NULL, &vk->frame_fence[i]) != VK_SUCCESS) {
-			wlr_log(WLR_ERROR, "vk: failed to create frame fence %d", i);
+			wlr_log(WLR_ERROR, "Failed to create frame fence %d", i);
 			return false;
 		}
 	}
@@ -1412,7 +1412,7 @@ static bool vk_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		vk->n_cached_views[i] = 0;
 	}
 
-	wlr_log(WLR_INFO, "vk: initialised");
+	wlr_log(WLR_INFO, "Initialised");
 	return true;
 }
 
@@ -1618,7 +1618,7 @@ static bool vk_output_init(be_output_state_t *state, int width, int height, int 
 		state->screen_shader.state = BE_RESOURCE_SHADER_READ;
 	} else {
 		free(ss);
-		wlr_log(WLR_ERROR, "vk: screen shader FBO failed (non-fatal)");
+		wlr_log(WLR_ERROR, "Screen shader FBO failed (non-fatal)");
 	}
 	return true;
 }
@@ -1704,7 +1704,7 @@ static bool vk_shared_get_dmabuf(struct wlr_buffer *wlr_buf,
 			.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
 		};
 		if (vk->vkGetMemoryFdKHR(vk->device, &gfd, &fd) != VK_SUCCESS || fd < 0) {
-			wlr_log(WLR_ERROR, "vk: shared get_dmabuf: vkGetMemoryFdKHR failed");
+			wlr_log(WLR_ERROR, "Shared get_dmabuf: vkGetMemoryFdKHR failed");
 			return false;
 		}
 
@@ -1818,7 +1818,7 @@ static bool vk_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w,
 	if (*buf)
 		return native[0] != 0;
 	if (!vk->vkGetMemoryFdKHR) {
-		wlr_log(WLR_ERROR, "vk: ensure_buffer: no vkGetMemoryFdKHR");
+		wlr_log(WLR_ERROR, "No vkGetMemoryFdKHR for ensure_buffer");
 		return false;
 	}
 
@@ -1831,7 +1831,7 @@ static bool vk_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w,
 	if (!vk_create_image(w, h, vk->vk_fmt,
 			VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
 			VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT, true, &sb->img)) {
-		wlr_log(WLR_ERROR, "vk: ensure_buffer: create_image failed");
+		wlr_log(WLR_ERROR, "Create_image failed in ensure_buffer");
 		free(sb);
 		return false;
 	}
@@ -1861,7 +1861,7 @@ static bool vk_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w,
 		.layers = 1,
 	};
 	if (vkCreateFramebuffer(vk->device, &fci, NULL, &fbo->fb) != VK_SUCCESS) {
-		wlr_log(WLR_ERROR, "vk: ensure_buffer: vkCreateFramebuffer failed");
+		wlr_log(WLR_ERROR, "VkCreateFramebuffer failed in ensure_buffer");
 		free(fbo);
 		goto error_img;
 	}
@@ -2547,7 +2547,7 @@ static bool vk_apply_corner_mask(be_output_state_t *state, be_effect_resource_t 
 	};
 	VkDescriptorSet ds;
 	if (vkAllocateDescriptorSets(vk->device, &dsai, &ds) != VK_SUCCESS) {
-		wlr_log(WLR_DEBUG, "vk: corner mask descriptor pool exhausted, skipping");
+		wlr_log(WLR_DEBUG, "Corner mask descriptor pool exhausted, skipping");
 		return false;
 	}
 	VkDescriptorImageInfo dii = {
@@ -2675,7 +2675,7 @@ static bool vk_capture_readback(struct wlr_buffer *capture_buffer, be_output_sta
 	(void)src_h;
 	struct wlr_texture *tex = wlr_texture_from_buffer(vk->wlr_renderer, capture_buffer);
 	if (!tex) {
-		wlr_log(WLR_ERROR, "vk: capture_readback: no texture");
+		wlr_log(WLR_ERROR, "No texture for capture_readback");
 		return false;
 	}
 

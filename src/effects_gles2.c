@@ -149,7 +149,7 @@ static GLuint compile_shader(GLenum type, const char *src) {
 		GLsizei len = 0;
 		glGetShaderInfoLog(s, sizeof(log), &len, log);
 		const char *shader_type = (type == GL_VERTEX_SHADER) ? "vertex" : "fragment";
-		wlr_log(WLR_ERROR, "gles2: %s shader compilation error: %.*s", shader_type, len, log);
+		wlr_log(WLR_ERROR, "%s shader compilation error: %.*s", shader_type, len, log);
 		glDeleteShader(s);
 		return 0;
 	}
@@ -177,7 +177,7 @@ static GLuint link_program(const char *frag_src) {
 		char log[1024];
 		GLsizei len = 0;
 		glGetProgramInfoLog(prog, sizeof(log), &len, log);
-		wlr_log(WLR_ERROR, "gles2: program linking error: %.*s", len, log);
+		wlr_log(WLR_ERROR, "Program linking error: %.*s", len, log);
 		glDeleteProgram(prog);
 		return 0;
 	}
@@ -202,7 +202,7 @@ static bool create_fbo(int w, int h, GLuint *fbo_out, GLuint *tex_out) {
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	if (status != GL_FRAMEBUFFER_COMPLETE) {
-		wlr_log(WLR_ERROR, "gles2: FBO incomplete (0x%x)", status);
+		wlr_log(WLR_ERROR, "FBO incomplete (0x%x)", status);
 		glDeleteTextures(1, &tex);
 		glDeleteFramebuffers(1, &fbo);
 		return false;
@@ -414,7 +414,7 @@ static bool gles2_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		return false;
 
 	if (!wlr_renderer_is_gles2(r)) {
-		wlr_log(WLR_INFO, "gles2: renderer is not GLES2");
+		wlr_log(WLR_INFO, "Renderer is not GLES2");
 		free(g);
 		g = NULL;
 		return false;
@@ -432,7 +432,7 @@ static bool gles2_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 		if (!g->render_fmt)
 			g->render_fmt = fmts ? wlr_drm_format_set_get(fmts, DRM_FORMAT_XRGB8888) : NULL;
 		if (!g->render_fmt) {
-			wlr_log(WLR_ERROR, "gles2: Failed to find a suitable DRM render format");
+			wlr_log(WLR_ERROR, "Failed to find a suitable DRM render format");
 			free(g);
 			g = NULL;
 			return false;
@@ -440,7 +440,7 @@ static bool gles2_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	}
 
 	if (!egl_make_current()) {
-		wlr_log(WLR_ERROR, "gles2: failed to make EGL context current");
+		wlr_log(WLR_ERROR, "Failed to make EGL context current");
 		free(g);
 		g = NULL;
 		return false;
@@ -465,7 +465,7 @@ static bool gles2_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	if (!g->prog_kawase || !g->prog_blur_down || !g->prog_blur_up || !g->prog_gauss_h ||
 			!g->prog_gauss_v || !g->prog_box_h || !g->prog_box_v || !g->prog_blit || !g->prog_mica_tint ||
 			!g->prog_acrylic_tint || !g->prog_refraction) {
-		wlr_log(WLR_ERROR, "gles2: one or more required shaders failed to compile");
+		wlr_log(WLR_ERROR, "One or more required shaders failed to compile");
 		egl_unset_current();
 		free(g);
 		g = NULL;
@@ -599,7 +599,7 @@ static bool gles2_init(struct wlr_renderer *r, struct wlr_allocator *a) {
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
 
 	egl_unset_current();
-	wlr_log(WLR_INFO, "gles2: initialised");
+	wlr_log(WLR_INFO, "Initialised");
 	return true;
 }
 
@@ -673,7 +673,7 @@ static bool gles2_output_init(be_output_state_t *state, int width, int height, i
 
 	if (!create_fbo(width, height, (GLuint *)&state->screen_shader.native_handle[0],
 		(GLuint *)&state->screen_shader.native_handle[1]))
-		wlr_log(WLR_ERROR, "gles2: screen shader FBO creation failed (non-fatal)");
+		wlr_log(WLR_ERROR, "Screen shader FBO creation failed (non-fatal)");
 	state->screen_shader.width = width;
 	state->screen_shader.height = height;
 	state->screen_shader.state = BE_RESOURCE_SHADER_READ;
@@ -708,7 +708,7 @@ static void gles2_output_resize(be_output_state_t *state, int width, int height,
 		int blur_h) {
 	gles2_output_fini(state);
 	if (!gles2_output_init(state, width, height, blur_w, blur_h))
-		wlr_log(WLR_ERROR, "gles2: output resize FBO creation failed (non-fatal)");
+		wlr_log(WLR_ERROR, "Output resize FBO creation failed (non-fatal)");
 }
 
 static bool gles2_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int w, int h,
@@ -720,27 +720,27 @@ static bool gles2_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int
 
 	struct wlr_buffer *new_buf = wlr_allocator_create_buffer(a, w, h, g->render_fmt);
 	if (!new_buf) {
-		wlr_log(WLR_DEBUG, "gles2_ensure_buffer: alloc create_buffer failed %dx%d", w, h);
+		wlr_log(WLR_DEBUG, "Alloc create_buffer failed %dx%d", w, h);
 		return false;
 	}
 
 	GLuint fbo = wlr_gles2_renderer_get_buffer_fbo(r, new_buf);
 	if (!fbo) {
-		wlr_log(WLR_DEBUG, "gles2_ensure_buffer: get_buffer_fbo failed %dx%d", w, h);
+		wlr_log(WLR_DEBUG, "Get_buffer_fbo failed %dx%d", w, h);
 		wlr_buffer_drop(new_buf);
 		return false;
 	}
 
 	struct wlr_texture *tex = wlr_texture_from_buffer(r, new_buf);
 	if (!tex) {
-		wlr_log(WLR_DEBUG, "gles2_ensure_buffer: texture_from_buffer failed %dx%d", w, h);
+		wlr_log(WLR_DEBUG, "Texture_from_buffer failed %dx%d", w, h);
 		wlr_buffer_drop(new_buf);
 		return false;
 	}
 	struct wlr_gles2_texture_attribs attribs;
 	wlr_gles2_texture_get_attribs(tex, &attribs);
 	if (!attribs.tex) {
-		wlr_log(WLR_DEBUG, "gles2_ensure_buffer: no GL texture attrib %dx%d", w, h);
+		wlr_log(WLR_DEBUG, "No GL texture attrib %dx%d", w, h);
 		wlr_texture_destroy(tex);
 		wlr_buffer_drop(new_buf);
 		return false;
@@ -752,8 +752,8 @@ static bool gles2_ensure_buffer(struct wlr_buffer **buf, uint64_t native[2], int
 	*buf = new_buf;
 	native[0] = (uint64_t)fbo;
 	native[1] = (uint64_t)attribs.tex;
-	wlr_log(WLR_DEBUG, "gles2_ensure_buffer: created buf %dx%d, fbo=%lu, tex=%lu", w, h,
-		(unsigned long)fbo, (unsigned long)attribs.tex);
+	wlr_log(WLR_DEBUG, "Created buf %dx%d, fbo=%lu, tex=%lu", w, h, (unsigned long)fbo,
+		(unsigned long)attribs.tex);
 	return true;
 }
 
@@ -778,12 +778,11 @@ static void gles2_frame_end(void) {
 static bool gles2_blit(be_effect_resource_t src, be_effect_resource_t dst, int w, int h,
 		const pixman_box32_t *scissor, int n_scissor) {
 	if (!be_resource_readable(&src) || !be_resource_valid(&dst)) {
-		wlr_log(WLR_DEBUG,
-			"gles2_blit: validation failed src.valid=%d src.state=%d dst.valid=%d dst.handle=%lu", src.valid,
-			src.state, dst.valid, (unsigned long)dst.handle);
+		wlr_log(WLR_DEBUG, "Validation failed src.valid=%d src.state=%d "
+			"dst.valid=%d dst.handle=%lu", src.valid, src.state, dst.valid, (unsigned long)dst.handle);
 		return false;
 	}
-	wlr_log(WLR_DEBUG, "gles2_blit: src tex=%lu, dst fbo=%lu, %dx%d", (unsigned long)src.handle,
+	wlr_log(WLR_DEBUG, "Src tex=%lu, dst fbo=%lu, %dx%d", (unsigned long)src.handle,
 		(unsigned long)dst.handle, w, h);
 	gles2_draw_begin((GLuint)dst.handle, (GLuint)src.handle, GL_TEXTURE_2D, g->prog_blit, g->u_blit.tex,
 		w, h);
@@ -795,16 +794,16 @@ static bool gles2_blur(be_output_state_t *state, be_effect_resource_t src, int s
 		struct be_blur_params *p, be_effect_resource_t dst, const pixman_box32_t *scissor, int n_scissor,
 		be_effect_resource_t *out_resource) {
 	if (!be_resource_readable(&src)) {
-		wlr_log(WLR_DEBUG, "gles2_blur: src not readable (handle=%lu, valid=%d, state=%d)",
-			(unsigned long)src.handle, src.valid, src.state);
+		wlr_log(WLR_DEBUG, "Src not readable (handle=%lu, valid=%d, state=%d)", (unsigned long)src.handle,
+			src.valid, src.state);
 		return false;
 	}
 	uint64_t src_handle = src.handle;
 
-	wlr_log(WLR_DEBUG, "gles2_blur: src=%lu %dx%d, passes=%d, full_res=%d, algorithm=%d, offset=%.2f, "
-		"bright=%.2f, contrast=%.2f, sat=%.2f, dst.valid=%d, dst.handle=%lu", (unsigned long)src.handle,
-			src_w, src_h, p->passes, p->full_res, p->algorithm, p->offset, p->brightness, p->contrast,
-			p->saturation, dst.valid, (unsigned long)dst.handle);
+	wlr_log(WLR_DEBUG, "Src=%lu %dx%d, passes=%d, full_res=%d, algorithm=%d, "
+		"offset=%.2f, bright=%.2f, contrast=%.2f, sat=%.2f, dst.valid=%d, "
+		"dst.handle=%lu", (unsigned long)src.handle, src_w, src_h, p->passes, p->full_res, p->algorithm,
+			p->offset, p->brightness, p->contrast, p->saturation, dst.valid, (unsigned long)dst.handle);
 
 	if (p->passes <= 0 || p->algorithm == BLUR_ALGORITHM_NONE) {
 		if (dst.valid) {
@@ -881,7 +880,7 @@ static bool gles2_blur(be_output_state_t *state, be_effect_resource_t src, int s
 				.state = BE_RESOURCE_SHADER_READ,
 				.valid = true
 			};
-		wlr_log(WLR_DEBUG, "gles2_blur: full-res kawase done, scratch tex=%lu, src=%dx%d",
+		wlr_log(WLR_DEBUG, "Full-res kawase done, scratch tex=%lu, src=%dx%d",
 			(unsigned long)state->blur_scratch.native_handle[1], src_w, src_h);
 		return true;
 	}
@@ -1145,11 +1144,11 @@ static bool gles2_capture_readback(struct wlr_buffer *capture_buffer, be_output_
 	GLuint dst_fbo = (GLuint)dst.handle;
 	GLuint capture_fbo = wlr_gles2_renderer_get_buffer_fbo(g->renderer, capture_buffer);
 	if (!capture_fbo) {
-		wlr_log(WLR_INFO, "gles2: capture_readback: no FBO");
+		wlr_log(WLR_INFO, "No FBO for capture_readback");
 		return false;
 	}
 
-	wlr_log(WLR_DEBUG, "gles2_capture_readback: src=%dx%d at (%d,%d), dst=%dx%d at (%d,%d), "
+	wlr_log(WLR_DEBUG, "Src=%dx%d at (%d,%d), dst=%dx%d at (%d,%d), "
 		"dst_fbo=%lu, capture_fbo=%lu, dst.valid=%d", src_w, src_h, src_x, src_y, dst_w, dst_h, dst_x,
 			dst_y, (unsigned long)dst_fbo, (unsigned long)capture_fbo, dst.valid);
 
@@ -1235,12 +1234,11 @@ static bool gles2_capture_readback(struct wlr_buffer *capture_buffer, be_output_
 	}
 
 	if (!result_tex) {
-		wlr_log(WLR_DEBUG, "gles2_capture_readback: no result texture (attach_type=%d, attach_name=%u)",
-			attach_type, attach_name);
+		wlr_log(WLR_DEBUG, "No result texture (attach_type=%d, attach_name=%u)", attach_type,
+			attach_name);
 		return false;
 	}
-	wlr_log(WLR_DEBUG, "gles2_capture_readback: success, result_tex=%lu, %dx%d",
-		(unsigned long)result_tex, dst_w, dst_h);
+	wlr_log(WLR_DEBUG, "Success, result_tex=%lu, %dx%d", (unsigned long)result_tex, dst_w, dst_h);
 	out_resource->handle = (uint64_t)result_tex;
 	out_resource->width = dst_w;
 	out_resource->height = dst_h;
