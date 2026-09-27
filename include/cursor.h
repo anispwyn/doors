@@ -20,7 +20,7 @@ typedef struct cursor_t {
 	struct wl_listener swipe_end;
 } cursor_t;
 
-void view_begin_interactive(view_t *toplevel, enum cursor_mode mode, uint32_t edges);
+void view_begin_interactive(view_t *view, enum cursor_mode mode, uint32_t edges);
 void cursor_rebase(void);
 void *desktop_type_at(double lx, double ly, struct wlr_surface **surface, double *sx, double *sy);
 

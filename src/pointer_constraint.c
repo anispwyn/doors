@@ -13,8 +13,8 @@ node_t *pointer_constraint_node(struct wlr_surface *surface) {
 
 	struct wlr_xdg_surface *xdg = wlr_xdg_surface_try_from_wlr_surface(surface);
 	if (xdg != NULL) {
-		view_t *toplevel = xdg->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL ? xdg->data : NULL;
-		return toplevel ? toplevel->node : NULL;
+		view_t *view = xdg->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL ? xdg->data : NULL;
+		return view ? view->node : NULL;
 	}
 
 	struct wlr_xwayland_surface *xsurface = wlr_xwayland_surface_try_from_wlr_surface(surface);

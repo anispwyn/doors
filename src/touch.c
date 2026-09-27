@@ -34,10 +34,10 @@ static void handle_touch_down(struct wl_listener *listener, void *data) {
 
 			struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
 			if (xdg_surface != NULL && xdg_surface->role != WLR_XDG_SURFACE_ROLE_POPUP) {
-				view_t *toplevel = type;
-				if (toplevel && toplevel->node) {
+				view_t *view = type;
+				if (view && view->node) {
 					if (output)
-						focus_node(output, toplevel->node->desktop, toplevel->node);
+						focus_node(output, view->node->desktop, view->node);
 				}
 			} else if (wlr_layer_surface_v1_try_from_wlr_surface(surface)) {
 				layer_surface_t *layer = type;

@@ -29,12 +29,12 @@ static void handle_pointer_warp(struct wl_listener *listener, void *data) {
 		return;
 	}
 
-	view_t *toplevel = event->surface->data;
-	if (toplevel == NULL)
+	view_t *view = event->surface->data;
+	if (view == NULL)
 		return;
 
-	double lx = event->x + toplevel->node->pending.rectangle.x - toplevel->node->rectangle.x;
-	double ly = event->y + toplevel->node->pending.rectangle.y - toplevel->node->rectangle.y;
+	double lx = event->x + view->node->pending.rectangle.x - view->node->rectangle.x;
+	double ly = event->y + view->node->pending.rectangle.y - view->node->rectangle.y;
 	wlr_cursor_warp(server.cursor, NULL, lx, ly);
 	wlr_seat_pointer_warp(event->seat_client->seat, event->x, event->y);
 	cursor_rebase();

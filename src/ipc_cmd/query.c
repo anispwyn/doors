@@ -63,10 +63,10 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 				send_failure(client_fd, "query -n: invalid node id\n");
 				return;
 			}
-			view_t *toplevel;
-			wl_list_for_each(toplevel, &server.views, link) {
-				if (toplevel->node && toplevel->node->id == (uint32_t)node_id) {
-					filter_node = toplevel->node;
+			view_t *view;
+			wl_list_for_each(view, &server.views, link) {
+				if (view->node && view->node->id == (uint32_t)node_id) {
+					filter_node = view->node;
 					break;
 				}
 			}
@@ -110,24 +110,24 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 				break;
 		}
 
-		view_t *toplevel;
-		wl_list_for_each(toplevel, &server.views, link) {
+		view_t *view;
+		wl_list_for_each(view, &server.views, link) {
 			bool include = true;
-			if (filter_node && toplevel->node != filter_node)
+			if (filter_node && view->node != filter_node)
 				include = false;
-			if (filter_desk && toplevel->node && toplevel->node->output &&
-				toplevel->node->output->desk != filter_desk)
+			if (filter_desk && view->node && view->node->output &&
+				view->node->output->desk != filter_desk)
 				include = false;
-			if (filter_mon && toplevel->node && toplevel->node->output != filter_mon)
+			if (filter_mon && view->node && view->node->output != filter_mon)
 				include = false;
 
 			if (include)
 				offset += snprintf(buf + offset, sizeof(buf) - offset,
 					"  \"%s\": {\"app_id\": \"%s\", \"title\": \"%s\", \"identifier\": \"%s\"}\n",
-					toplevel->type == VIEW_XWAYLAND ? "xwayland" : "toplevel",
-					toplevel->node && toplevel->node->client ? toplevel->node->client->app_id : "?",
-					toplevel->node && toplevel->node->client ? toplevel->node->client->title : "?",
-					toplevel->foreign_identifier ? toplevel->foreign_identifier : "?");
+					view->type == VIEW_XWAYLAND ? "xwayland" : "toplevel",
+					view->node && view->node->client ? view->node->client->app_id : "?",
+					view->node && view->node->client ? view->node->client->title : "?",
+					view->foreign_identifier ? view->foreign_identifier : "?");
 		}
 
 		offset += snprintf(buf + offset, sizeof(buf) - offset, "}\n");
@@ -160,29 +160,29 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 		}
 		send_success(client_fd, buf);
 	} else if (streq("-N", *args) || streq("--nodes", *args)) {
-		view_t *toplevel;
-		wl_list_for_each(toplevel, &server.views, link) {
+		view_t *view;
+		wl_list_for_each(view, &server.views, link) {
 			bool include = true;
-			if (filter_node && toplevel->node != filter_node)
+			if (filter_node && view->node != filter_node)
 				include = false;
-			if (filter_desk && toplevel->node && toplevel->node->output &&
-				toplevel->node->output->desk != filter_desk)
+			if (filter_desk && view->node && view->node->output &&
+				view->node->output->desk != filter_desk)
 				include = false;
-			if (filter_mon && toplevel->node && toplevel->node->output != filter_mon)
+			if (filter_mon && view->node && view->node->output != filter_mon)
 				include = false;
 
 			if (include) {
 				if (use_names) {
 					const char *name = "?";
-					if (toplevel->node && toplevel->node->client && toplevel->node->client->title[0])
-						name = toplevel->node->client->title;
-					else if (toplevel->node && toplevel->node->client && toplevel->node->client->app_id[0])
-						name = toplevel->node->client->app_id;
+					if (view->node && view->node->client && view->node->client->title[0])
+						name = view->node->client->title;
+					else if (view->node && view->node->client && view->node->client->app_id[0])
+						name = view->node->client->app_id;
 					offset += snprintf(buf + offset, sizeof(buf) - offset, "%s\n", name);
 				} else {
 					offset += snprintf(buf + offset, sizeof(buf) - offset, "%u %s\n",
-						toplevel->node ? toplevel->node->id : 0,
-						toplevel->foreign_identifier ? toplevel->foreign_identifier : "?");
+						view->node ? view->node->id : 0,
+						view->foreign_identifier ? view->foreign_identifier : "?");
 				}
 			}
 		}
@@ -200,10 +200,10 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 			return;
 		}
 		char *foreign_id = "?";
-		view_t *toplevel;
-		wl_list_for_each(toplevel, &server.views, link)
-			if (toplevel->node == n) {
-				foreign_id = toplevel->foreign_identifier ? toplevel->foreign_identifier : "?";
+		view_t *view;
+		wl_list_for_each(view, &server.views, link)
+			if (view->node == n) {
+				foreign_id = view->foreign_identifier ? view->foreign_identifier : "?";
 			break;
 		}
 		if (use_names) {

@@ -181,15 +181,15 @@ static void handle_xdg_activation_request_activate(struct wl_listener *listener,
 		return;
 	}
 
-	view_t *toplevel = xdg_surface->data;
-	if (toplevel == NULL)
+	view_t *view = xdg_surface->data;
+	if (view == NULL)
 		return;
 
-	wlr_log(WLR_DEBUG, "xdg_activation: activating toplevel %p", (void *)toplevel);
+	wlr_log(WLR_DEBUG, "xdg_activation: activating toplevel %p", (void *)view);
 
-	wlr_scene_node_raise_to_top(&toplevel->scene_tree->node);
-	if (toplevel->node && toplevel->node->output && toplevel->node->desktop)
-		activate_node(toplevel->node->output, toplevel->node->desktop, toplevel->node);
+	wlr_scene_node_raise_to_top(&view->scene_tree->node);
+	if (view->node && view->node->output && view->node->desktop)
+		activate_node(view->node->output, view->node->desktop, view->node);
 }
 
 static void handle_xdg_activation_new_token(struct wl_listener *listener, void *data) {

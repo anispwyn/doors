@@ -117,11 +117,11 @@ void ipc_cmd_wm(char **args, int num, int client_fd) {
 
 		send_success(client_fd, "unimplemented\n");
 	} else if (streq("-o", *args) || streq("--adopt-orphans", *args)) {
-		view_t *toplevel, *tmp;
+		view_t *view, *tmp;
 		int adopted = 0;
-		wl_list_for_each_safe(toplevel, tmp, &server.views, link) {
-			xdg_toplevel_t *xdg = view_to_xdg(toplevel);
-			if (!toplevel->node && xdg && xdg->xdg_toplevel && toplevel->mapped) {
+		wl_list_for_each_safe(view, tmp, &server.views, link) {
+			xdg_toplevel_t *xdg = view_to_xdg(view);
+			if (!view->node && xdg && xdg->xdg_toplevel && view->mapped) {
 				xdg_toplevel_adopt(xdg);
 				adopted++;
 			}

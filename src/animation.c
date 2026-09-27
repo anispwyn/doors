@@ -367,43 +367,43 @@ void animation_cancel_scene_tree(struct wlr_scene_tree *scene_tree) {
 	}
 }
 
-bool animation_fade_in(view_t *toplevel) {
-	if (!toplevel || !toplevel->node || !toplevel->scene_tree || !settings.enable_animations)
+bool animation_fade_in(view_t *view) {
+	if (!view || !view->node || !view->scene_tree || !settings.enable_animations)
 		return false;
 
 	if (!anim_type_configs[2].enabled)
 		return false;
-	if (toplevel->node->client && toplevel->node->client->flags.anim_disabled)
+	if (view->node->client && view->node->client->flags.anim_disabled)
 		return false;
 
-	animation_entry_t *entry = find_animation(toplevel->node);
+	animation_entry_t *entry = find_animation(view->node);
 	if (entry) {
 		entry->from_opacity = 0.0f;
-		entry->to_opacity = toplevel->node->client->opacity;
-		entry->view = toplevel;
-		entry->node = toplevel->node;
+		entry->to_opacity = view->node->client->opacity;
+		entry->view = view;
+		entry->node = view->node;
 	} else {
 		entry = create_animation_entry();
 		if (!entry)
 			return false;
 
-		entry->node = toplevel->node;
-		entry->scene_tree = toplevel->scene_tree;
-		entry->output = toplevel->node->output;
-		entry->from.x = toplevel->scene_tree->node.x;
-		entry->from.y = toplevel->scene_tree->node.y;
+		entry->node = view->node;
+		entry->scene_tree = view->scene_tree;
+		entry->output = view->node->output;
+		entry->from.x = view->scene_tree->node.x;
+		entry->from.y = view->scene_tree->node.y;
 		entry->to = entry->from;
 		entry->from_opacity = 0.0f;
-		entry->to_opacity = toplevel->node->client->opacity;
+		entry->to_opacity = view->node->client->opacity;
 		clock_gettime(CLOCK_MONOTONIC, &entry->start);
 		entry->duration_ms = ANIMATION_DURATION_MS;
 		apply_config_to_entry(entry, 2);
 	}
 
-	surface_set_opacity(&toplevel->scene_tree->node, 0.0f);
+	surface_set_opacity(&view->scene_tree->node, 0.0f);
 
 	wlr_log(WLR_DEBUG, "animation: fade_in entry=%p", (void *)entry);
-	schedule_output(toplevel->node->output);
+	schedule_output(view->node->output);
 	return true;
 }
 
@@ -435,14 +435,14 @@ bool animation_fade_in_layer(layer_surface_t *layer) {
 	return true;
 }
 
-bool animation_fade_out(view_t *toplevel) {
-	if (!toplevel || !toplevel->scene_tree || !toplevel->node || !toplevel->node->output ||
+bool animation_fade_out(view_t *view) {
+	if (!view || !view->scene_tree || !view->node || !view->node->output ||
 		!settings.enable_animations)
 		return false;
 
 	if (!anim_type_configs[3].enabled)
 		return false;
-	if (toplevel->node->client && toplevel->node->client->flags.anim_disabled)
+	if (view->node->client && view->node->client->flags.anim_disabled)
 		return false;
 
 	animation_entry_t *entry = create_animation_entry();
@@ -450,10 +450,10 @@ bool animation_fade_out(view_t *toplevel) {
 		return false;
 
 	entry->node = NULL;
-	entry->view = toplevel;
-	entry->scene_tree = toplevel->scene_tree;
-	entry->output = toplevel->node->output;
-	entry->from_opacity = toplevel->node->client->opacity;
+	entry->view = view;
+	entry->scene_tree = view->scene_tree;
+	entry->output = view->node->output;
+	entry->from_opacity = view->node->client->opacity;
 	entry->to_opacity = 0.0f;
 	clock_gettime(CLOCK_MONOTONIC, &entry->start);
 	entry->duration_ms = ANIMATION_DURATION_MS;
@@ -565,14 +565,14 @@ bool animation_start_workspace_slide(output_t *output, node_t *node,
 
 static void update_resize_entry(animation_entry_t *entry);
 
-bool animation_start_resize(view_t *toplevel, struct wlr_box from, struct wlr_box to) {
-	if (!toplevel || !toplevel->scene_tree || !toplevel->content_tree || !toplevel->node ||
+bool animation_start_resize(view_t *view, struct wlr_box from, struct wlr_box to) {
+	if (!view || !view->scene_tree || !view->content_tree || !view->node ||
 		!settings.enable_animations)
 		return false;
 
 	if (!anim_type_configs[1].enabled)
 		return false;
-	if (toplevel->node->client && toplevel->node->client->flags.anim_disabled)
+	if (view->node->client && view->node->client->flags.anim_disabled)
 		return false;
 
 	// skip if the size didn't actually change
@@ -590,7 +590,7 @@ bool animation_start_resize(view_t *toplevel, struct wlr_box from, struct wlr_bo
 	struct timespec now;
 	clock_gettime(CLOCK_MONOTONIC, &now);
 
-	animation_entry_t *entry = find_animation(toplevel->node);
+	animation_entry_t *entry = find_animation(view->node);
 	if (entry) {
 		// compute current interpolated state from the ongoing animation
 		double e = entry->eased;
@@ -609,22 +609,22 @@ bool animation_start_resize(view_t *toplevel, struct wlr_box from, struct wlr_bo
 	}
 
 	entry->kind = ANIM_KIND_RESIZE;
-	entry->node = toplevel->node;
-	entry->view = toplevel;
-	entry->scene_tree = toplevel->scene_tree;
-	entry->output = toplevel->node->output;
+	entry->node = view->node;
+	entry->view = view;
+	entry->scene_tree = view->scene_tree;
+	entry->output = view->node->output;
 	entry->from = from;
 	entry->to = to;
 	entry->start = now;
 	entry->duration_ms = ANIMATION_DURATION_MS;
-	entry->from_opacity = toplevel->node->client->opacity;
-	entry->to_opacity = toplevel->node->client->opacity;
+	entry->from_opacity = view->node->client->opacity;
+	entry->to_opacity = view->node->client->opacity;
 	entry->eased = 0.0;
 	entry->progress = 0.0;
 	apply_config_to_entry(entry, 1);
 
 	// position the scene tree at the start of the animation
-	wlr_scene_node_set_position(&toplevel->scene_tree->node, from.x, from.y);
+	wlr_scene_node_set_position(&view->scene_tree->node, from.x, from.y);
 
 	update_resize_entry(entry);
 
@@ -632,7 +632,7 @@ bool animation_start_resize(view_t *toplevel, struct wlr_box from, struct wlr_bo
 		(void *)entry, entry->node ? entry->node->id : 0, from.x, from.y, from.width, from.height, to.x,
 		to.y, to.width, to.height);
 
-	schedule_output(toplevel->node->output);
+	schedule_output(view->node->output);
 	return true;
 }
 
@@ -764,12 +764,12 @@ bool animation_is_resizing(node_t *node) {
 	return entry && entry->kind == ANIM_KIND_RESIZE;
 }
 
-bool animation_get_toplevel_resize_progress(view_t *toplevel, double *progress,
+bool animation_get_toplevel_resize_progress(view_t *view, double *progress,
 		struct wlr_box *anim_from, struct wlr_box *anim_to) {
-	if (!toplevel || !toplevel->node)
+	if (!view || !view->node)
 		return false;
 
-	animation_entry_t *entry = find_animation(toplevel->node);
+	animation_entry_t *entry = find_animation(view->node);
 	if (!entry || entry->kind != ANIM_KIND_RESIZE)
 		return false;
 
@@ -783,11 +783,11 @@ bool animation_get_toplevel_resize_progress(view_t *toplevel, double *progress,
 	return true;
 }
 
-bool animation_get_geometry_progress(view_t *toplevel, struct wlr_box *out) {
-	if (!toplevel || !toplevel->node)
+bool animation_get_geometry_progress(view_t *view, struct wlr_box *out) {
+	if (!view || !view->node)
 		return false;
 
-	animation_entry_t *entry = find_animation(toplevel->node);
+	animation_entry_t *entry = find_animation(view->node);
 	if (!entry)
 		return false;
 

@@ -36,10 +36,10 @@ int desktop_toplevels(desktop_t *d, node_t ***out_nodes) {
 			if (n->client != NULL)
 				count++;
 
-	view_t *toplevel;
-	wl_list_for_each(toplevel, &server.views, link) {
-		if (toplevel->mapped && toplevel->node != NULL && toplevel->node->client != NULL &&
-			toplevel->node->desktop == d && node_outside_tree(toplevel->node, d))
+	view_t *view;
+	wl_list_for_each(view, &server.views, link) {
+		if (view->mapped && view->node != NULL && view->node->client != NULL &&
+			view->node->desktop == d && node_outside_tree(view->node, d))
 			count++;
 	}
 
@@ -57,10 +57,10 @@ int desktop_toplevels(desktop_t *d, node_t ***out_nodes) {
 				nodes[index++] = n;
 	}
 
-	wl_list_for_each(toplevel, &server.views, link) {
-		if (toplevel->mapped && toplevel->node != NULL && toplevel->node->client != NULL &&
-			toplevel->node->desktop == d && node_outside_tree(toplevel->node, d))
-			nodes[index++] = toplevel->node;
+	wl_list_for_each(view, &server.views, link) {
+		if (view->mapped && view->node != NULL && view->node->client != NULL &&
+			view->node->desktop == d && node_outside_tree(view->node, d))
+			nodes[index++] = view->node;
 	}
 
 	*out_nodes = nodes;
@@ -77,10 +77,10 @@ bool desktop_has_toplevels(desktop_t *d) {
 				return true;
 	}
 
-	view_t *toplevel;
-	wl_list_for_each(toplevel, &server.views, link) {
-		if (toplevel->mapped && toplevel->node != NULL && toplevel->node->client != NULL &&
-			toplevel->node->desktop == d)
+	view_t *view;
+	wl_list_for_each(view, &server.views, link) {
+		if (view->mapped && view->node != NULL && view->node->client != NULL &&
+			view->node->desktop == d)
 			return true;
 	}
 

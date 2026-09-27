@@ -291,11 +291,11 @@ found_desktop:
 static void update_all_toplevels_visibility(output_t *m, desktop_t *current_desktop) {
 	int window_count = 0;
 
-	view_t *toplevel;
-	wl_list_for_each(toplevel, &server.views, link) {
-		if (!toplevel->mapped || !toplevel->scene_tree || !toplevel->node)
+	view_t *view;
+	wl_list_for_each(view, &server.views, link) {
+		if (!view->mapped || !view->scene_tree || !view->node)
 			continue;
-		update_window_visibility(toplevel->node, m, current_desktop, &window_count);
+		update_window_visibility(view->node, m, current_desktop, &window_count);
 	}
 }
 

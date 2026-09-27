@@ -16,10 +16,10 @@ static void handle_tearing_controller_set_hint(struct wl_listener *listener, voi
 	(void)data;
 	tearing_controller_t *controller = wl_container_of(listener, controller, set_hint);
 
-	view_t *toplevel = view_from_wlr_surface(controller->tearing_control->surface);
+	view_t *view = view_from_wlr_surface(controller->tearing_control->surface);
 
-	if (toplevel)
-		toplevel->tearing_hint = controller->tearing_control->current;
+	if (view)
+		view->tearing_hint = controller->tearing_control->current;
 }
 
 static void handle_tearing_controller_destroy(struct wl_listener *listener, void *data) {

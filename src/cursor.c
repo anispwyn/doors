@@ -596,8 +596,8 @@ static void process_cursor_motion(uint32_t time, double dx, double dy, double dx
 		output_schedule_frame(m);
 }
 
-void view_begin_interactive(view_t *toplevel, enum cursor_mode mode, uint32_t edges) {
-	server.grabbed_view = toplevel;
+void view_begin_interactive(view_t *view, enum cursor_mode mode, uint32_t edges) {
+	server.grabbed_view = view;
 	server.cursor_mode = mode;
 
 	// clear tiled resize state
@@ -606,16 +606,16 @@ void view_begin_interactive(view_t *toplevel, enum cursor_mode mode, uint32_t ed
 	server.tiled_resize_parent_horizontal = NULL;
 
 	if (mode == CURSOR_MOVE) {
-		if (toplevel->node && toplevel->node->client) {
-			server.grab_x = server.cursor->x - toplevel->node->client->floating_rectangle.x;
-			server.grab_y = server.cursor->y - toplevel->node->client->floating_rectangle.y;
+		if (view->node && view->node->client) {
+			server.grab_x = server.cursor->x - view->node->client->floating_rectangle.x;
+			server.grab_y = server.cursor->y - view->node->client->floating_rectangle.y;
 		}
 	} else if (mode == CURSOR_RESIZE) {
-		if (toplevel->node && toplevel->node->client && IS_TILED(toplevel->node->client)) {
+		if (view->node && view->node->client && IS_TILED(view->node->client)) {
 			// init tiled resize state
-			server.tiled_resize_node = toplevel->node;
-			server.tiled_resize_parent_vertical = find_vertical_ancestor(toplevel->node);
-			server.tiled_resize_parent_horizontal = find_horizontal_ancestor(toplevel->node);
+			server.tiled_resize_node = view->node;
+			server.tiled_resize_parent_vertical = find_vertical_ancestor(view->node);
+			server.tiled_resize_parent_horizontal = find_horizontal_ancestor(view->node);
 
 			// store initial ratios
 			if (server.tiled_resize_parent_vertical)
@@ -633,16 +633,16 @@ void view_begin_interactive(view_t *toplevel, enum cursor_mode mode, uint32_t ed
 			double border_x = server.cursor->x;
 			double border_y = server.cursor->y;
 			if (edges & WLR_EDGE_RIGHT)
-				border_x = toplevel->node->client->floating_rectangle.x +
-					toplevel->node->client->floating_rectangle.width;
+				border_x = view->node->client->floating_rectangle.x +
+					view->node->client->floating_rectangle.width;
 			if (edges & WLR_EDGE_BOTTOM)
-				border_y = toplevel->node->client->floating_rectangle.y +
-					toplevel->node->client->floating_rectangle.height;
+				border_y = view->node->client->floating_rectangle.y +
+					view->node->client->floating_rectangle.height;
 
 			server.grab_x = server.cursor->x - border_x;
 			server.grab_y = server.cursor->y - border_y;
 
-			server.grab_geobox = toplevel->node->client->floating_rectangle;
+			server.grab_geobox = view->node->client->floating_rectangle;
 			server.resize_edges = edges;
 		}
 	}
@@ -831,22 +831,22 @@ void cursor_button(struct wl_listener *listener, void *data) {
 				keybind_t *matched_kb = handle_keybind_raw(modifiers, keycode, true);
 
 				if (matched_kb) {
-					view_t *toplevel = NULL;
+					view_t *view = NULL;
 					if (type && ((view_t *)type)->node)
-						toplevel = type;
+						view = type;
 
-					if (toplevel && toplevel->node && toplevel->node->client) {
+					if (view && view->node && view->node->client) {
 						if (matched_kb->action == BIND_TILING_DRAG) {
-							if (IS_TILED(toplevel->node->client))
-								tiling_drag_begin(toplevel->node);
+							if (IS_TILED(view->node->client))
+								tiling_drag_begin(view->node);
 						} else if (matched_kb->action == BIND_INTERACTIVE_MOVE) {
-							if (toplevel->node->client->state == STATE_FLOATING)
-								view_begin_interactive(toplevel, CURSOR_MOVE, 0);
-							else if (IS_TILED(toplevel->node->client))
-								tiling_drag_begin(toplevel->node);
+							if (view->node->client->state == STATE_FLOATING)
+								view_begin_interactive(view, CURSOR_MOVE, 0);
+							else if (IS_TILED(view->node->client))
+								tiling_drag_begin(view->node);
 						} else if (matched_kb->action == BIND_INTERACTIVE_RESIZE) {
-							client_t *c = toplevel->node->client;
-							desktop_t *d = toplevel->node->desktop;
+							client_t *c = view->node->client;
+							desktop_t *d = view->node->desktop;
 							uint32_t edges = 0;
 
 							if (c->state == STATE_FLOATING) {
@@ -861,12 +861,12 @@ void cursor_button(struct wl_listener *listener, void *data) {
 									edges = edges_from_cursor(&rect, WLR_EDGE_LEFT | WLR_EDGE_RIGHT);
 								} else {
 									struct wlr_box rect = c->tiled_rectangle;
-									edges = edges_from_cursor(&rect, get_tiled_resizable_edges(toplevel->node));
+									edges = edges_from_cursor(&rect, get_tiled_resizable_edges(view->node));
 								}
 							}
 
 							if (edges != 0)
-								view_begin_interactive(toplevel, CURSOR_RESIZE, edges);
+								view_begin_interactive(view, CURSOR_RESIZE, edges);
 						}
 					}
 				}
