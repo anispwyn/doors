@@ -4,10 +4,12 @@
 #include "copy_capture.h"
 #include "effects.h"
 #include "input_method.h"
+#include "ipc.h"
 #include "output.h"
 #include "seat.h"
 #include "server.h"
 #include "surface.h"
+#include "tabs.h"
 #include "tablet.h"
 #include "tree.h"
 #include "tree_layout.h"
@@ -231,6 +233,100 @@ void view_close(view_t *view) {
 		view->impl->close(view);
 }
 
+void view_configure(view_t *view, struct wlr_box rect) {
+	if (view == NULL || view->impl == NULL || view->impl->configure == NULL)
+		return;
+
+	view->impl->configure(view, rect);
+}
+
+void view_set_title(view_t *view, const char *title) {
+	if (view == NULL || view->client == NULL)
+		return;
+
+	client_t *c = view->client;
+
+	if (title) {
+		client_set_title(c, title);
+		wlr_log(WLR_DEBUG, "View title changed: %s", title);
+
+		if (view->foreign_toplevel)
+			wlr_foreign_toplevel_handle_v1_set_title(view->foreign_toplevel, title);
+	}
+
+	client_update_ext_foreign_toplevel(c);
+	tabs_update_label_for_leaf(view->node);
+
+	ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,title]\n",
+		c->app_id[0] ? c->app_id : "?", title ? title : "?", view->node ? view->node->id : 0);
+}
+
+void view_set_app_id(view_t *view, const char *app_id) {
+	if (view == NULL || view->client == NULL)
+		return;
+
+	client_t *c = view->client;
+
+	if (app_id) {
+		client_set_app_id(c, app_id);
+		wlr_log(WLR_DEBUG, "View app_id changed: %s", app_id);
+
+		if (view->foreign_toplevel)
+			wlr_foreign_toplevel_handle_v1_set_app_id(view->foreign_toplevel, app_id);
+	}
+
+	client_update_ext_foreign_toplevel(c);
+	tabs_update_label_for_leaf(view->node);
+
+	ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,app_id]\n", app_id ? app_id : "?",
+		c->title[0] ? c->title : "?", view->node ? view->node->id : 0);
+}
+
+void view_create_foreign_toplevels(view_t *view, const char *app_id, const char *title) {
+	if (view == NULL)
+		return;
+
+	struct wlr_ext_foreign_toplevel_handle_v1_state ext_state = {
+		.app_id = app_id,
+		.title = title,
+	};
+
+	view->ext_foreign_toplevel =
+		wlr_ext_foreign_toplevel_handle_v1_create(server.foreign_toplevel_list, &ext_state);
+	if (view->ext_foreign_toplevel) {
+		view->ext_foreign_toplevel->data = view;
+		view->foreign_identifier = view->ext_foreign_toplevel->identifier;
+	}
+
+	view->foreign_toplevel = wlr_foreign_toplevel_handle_v1_create(server.foreign_toplevel_manager);
+
+	if (view->foreign_toplevel && view->client) {
+		client_connect_foreign_toplevel(view->client, view->foreign_toplevel);
+
+		if (app_id)
+			wlr_foreign_toplevel_handle_v1_set_app_id(view->foreign_toplevel, app_id);
+	}
+}
+
+void view_destroy_foreign_toplevels(view_t *view) {
+	if (view == NULL)
+		return;
+
+	if (view->ext_foreign_toplevel) {
+		wlr_ext_foreign_toplevel_handle_v1_destroy(view->ext_foreign_toplevel);
+		view->ext_foreign_toplevel = NULL;
+	}
+
+	// the identifier is owned by the ext handle, a view that outlives it (unmap
+	// without destroy) must not keep handing out the freed pointer
+	view->foreign_identifier = NULL;
+
+	if (view->foreign_toplevel) {
+		wlr_foreign_toplevel_handle_v1_destroy(view->foreign_toplevel);
+		view->foreign_toplevel = NULL;
+	}
+}
+
 static void handle_foreign_activate_request(struct wl_listener *listener, void *data) {
 	(void)data;
 	client_t *c = wl_container_of(listener, c, foreign.activate);
@@ -298,7 +394,7 @@ bool view_output_handler_point_accepts_input(struct wlr_scene_buffer *buffer, do
 	return false;
 }
 
-void view_disconnect_outputs_update(view_t *view) {
+static void view_disconnect_outputs_update(view_t *view) {
 	if (view == NULL)
 		return;
 	wl_list_remove(&view->outputs_update.link);
@@ -654,6 +750,7 @@ void view_send_frame_done(view_t *view) {
 
 bool view_init(view_t *view, view_type_t type) {
 	view->type = type;
+	wl_list_init(&view->link);
 
 	// create parent scene tree container
 	view->scene_tree = wlr_scene_tree_create(server.tile_tree);
@@ -707,15 +804,7 @@ void view_destroy(view_t *view) {
 	view->node = NULL;
 	view->client = NULL;
 
-	if (view->ext_foreign_toplevel) {
-		wlr_ext_foreign_toplevel_handle_v1_destroy(view->ext_foreign_toplevel);
-		view->ext_foreign_toplevel = NULL;
-	}
-
-	if (view->foreign_toplevel) {
-		wlr_foreign_toplevel_handle_v1_destroy(view->foreign_toplevel);
-		view->foreign_toplevel = NULL;
-	}
+	view_destroy_foreign_toplevels(view);
 
 	if (view->capture_renderer) {
 		capture_renderer_destroy(view->capture_renderer);
@@ -743,6 +832,9 @@ void view_destroy(view_t *view) {
 		view->scene_tree = NULL;
 		view->content_tree = NULL;
 	}
+
+	wl_list_remove(&view->link);
+	wl_list_init(&view->link);
 }
 
 void view_free_effects(view_t *view) {

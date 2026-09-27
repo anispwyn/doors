@@ -56,6 +56,7 @@ typedef struct view_impl_t {
 	void (*set_activated)(view_t *view, bool activated);
 	void (*close)(view_t *view);
 	void (*set_decorations)(view_t *view);
+	void (*configure)(view_t *view, struct wlr_box rect);
 } view_impl_t;
 
 xdg_toplevel_t *view_to_xdg(view_t *view);
@@ -71,6 +72,13 @@ bool view_get_surface_offset(view_t *view, int *ox, int *oy);
 
 void view_set_activated(view_t *view, bool activated);
 void view_close(view_t *view);
+void view_configure(view_t *view, struct wlr_box rect);
+
+void view_set_title(view_t *view, const char *title);
+void view_set_app_id(view_t *view, const char *app_id);
+
+void view_create_foreign_toplevels(view_t *view, const char *app_id, const char *title);
+void view_destroy_foreign_toplevels(view_t *view);
 
 void view_save_buffer(view_t *view);
 void view_remove_saved_buffer(view_t *view);
@@ -80,14 +88,6 @@ void view_freeze_sibling_buffers(desktop_t *d, node_t *n);
 
 bool view_output_handler_point_accepts_input(struct wlr_scene_buffer *buffer, double *x, double *y);
 void view_handle_outputs_update(struct wl_listener *listener, void *data);
-void view_disconnect_outputs_update(view_t *view);
-
-void client_update_foreign_toplevel_state(client_t *client);
-void client_update_ext_foreign_toplevel(client_t *client);
-void client_connect_foreign_toplevel(client_t *client,
-	struct wlr_foreign_toplevel_handle_v1 *handle);
-void client_disconnect_foreign_toplevel(client_t *client);
-void client_send_activated(client_t *client, bool activated);
 
 bool view_init(view_t *view, view_type_t type);
 void view_destroy(view_t *view);

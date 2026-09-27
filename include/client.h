@@ -29,3 +29,13 @@ struct wlr_surface *client_wlr_surface(client_t *client);
 struct wlr_ext_foreign_toplevel_handle_v1 *client_get_ext_foreign_toplevel(const client_t *client);
 struct wlr_foreign_toplevel_handle_v1 *client_get_foreign_toplevel(const client_t *client);
 char client_state_to_char(const client_t *c);
+
+void client_set_title(client_t *client, const char *title);
+void client_set_app_id(client_t *client, const char *app_id);
+
+void client_update_foreign_toplevel_state(client_t *client);
+void client_update_ext_foreign_toplevel(client_t *client);
+void client_connect_foreign_toplevel(client_t *client,
+	struct wlr_foreign_toplevel_handle_v1 *handle);
+void client_disconnect_foreign_toplevel(client_t *client);
+void client_send_activated(client_t *client, bool activated);

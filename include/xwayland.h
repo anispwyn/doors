@@ -71,7 +71,5 @@ typedef struct xwayland_unmanaged_t {
 	struct wl_listener override_redirect;
 } xwayland_unmanaged_t;
 
-void xwayland_toplevel_close(xwayland_toplevel_t *xwayland_toplevel);
-
 void xwayland_init(void);
 void xwayland_fini(void);

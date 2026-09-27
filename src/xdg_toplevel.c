@@ -42,11 +42,13 @@ static void xdg_toplevel_handle_maximize(xdg_toplevel_t *toplevel, bool requeste
 static void xdg_view_impl_set_activated(view_t *view, bool activated);
 static void xdg_view_impl_close(view_t *view);
 static void xdg_view_impl_set_decorations(view_t *view);
+static void xdg_view_impl_configure(view_t *view, struct wlr_box rect);
 
 static const view_impl_t xdg_view_impl = {
 	.set_activated = xdg_view_impl_set_activated,
 	.close = xdg_view_impl_close,
 	.set_decorations = xdg_view_impl_set_decorations,
+	.configure = xdg_view_impl_configure,
 };
 
 static bool xdg_toplevel_should_use_server_decorations(xdg_toplevel_t *tl) {
@@ -100,7 +102,20 @@ static void xdg_view_impl_set_decorations(view_t *view) {
 		xdg_toplevel_apply_decoration_mode(toplevel);
 }
 
-void xdg_view_impl_close(view_t *view) {
+static void xdg_view_impl_configure(view_t *view, struct wlr_box rect) {
+	xdg_toplevel_t *toplevel = view_to_xdg(view);
+	if (toplevel == NULL || toplevel->xdg_toplevel == NULL)
+		return;
+
+	if (rect.width == (int)view->last_requested.width && rect.height == (int)view->last_requested.height)
+		return;
+
+	wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, rect.width, rect.height);
+	view->last_requested.width = rect.width;
+	view->last_requested.height = rect.height;
+}
+
+static void xdg_view_impl_close(view_t *view) {
 	xdg_toplevel_t *toplevel = view_to_xdg(view);
 	if (toplevel && toplevel->xdg_toplevel)
 		wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
@@ -190,15 +205,8 @@ void xdg_toplevel_adopt(xdg_toplevel_t *toplevel) {
 	const char *app_id = toplevel->xdg_toplevel->app_id;
 	const char *title = toplevel->xdg_toplevel->title;
 
-	if (app_id) {
-		strncpy(n->client->app_id, app_id, MAXLEN - 1);
-		n->client->app_id[MAXLEN - 1] = '\0';
-	}
-
-	if (title) {
-		strncpy(n->client->title, title, MAXLEN - 1);
-		n->client->title[MAXLEN - 1] = '\0';
-	}
+	client_set_app_id(n->client, app_id);
+	client_set_title(n->client, title);
 
 	wlr_log(WLR_INFO, "New window: %s (%s)", title ? title : "untitled", app_id ? app_id : "unknown");
 
@@ -268,41 +276,9 @@ void xdg_toplevel_adopt(xdg_toplevel_t *toplevel) {
 		desktop_changed);
 
 	rule_apply_consequence(n, n->client, rule);
+	rule_apply_view_consequence(&toplevel->view, rule);
 
-	if (rule) {
-		if (rule->has & RULE_TYPE_BLUR)
-			surface_client_set_effect(toplevel->view.client, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
-		if (rule->has & RULE_TYPE_MICA)
-			surface_client_set_effect(toplevel->view.client, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
-		if (rule->has & RULE_TYPE_ACRYLIC)
-			surface_client_set_effect(toplevel->view.client, EFFECT_ACRYLIC,
-				rule->flags & RULE_TYPE_ACRYLIC);
-		if (rule->has & RULE_TYPE_BORDER_RADIUS)
-			surface_client_set_border_radius(toplevel->view.client, rule->border_radius);
-		if (rule->has & RULE_TYPE_SHADOW)
-			surface_client_set_shadow(toplevel->view.client, rule->flags & RULE_TYPE_SHADOW);
-		if (rule->has & RULE_TYPE_OPACITY)
-			surface_set_opacity(&toplevel->view.scene_tree->node, rule->opacity);
-	}
-
-	// create foreign toplevel handles
-	struct wlr_ext_foreign_toplevel_handle_v1_state ext_state = {
-		.app_id = app_id,
-		.title = title,
-	};
-	toplevel->view.ext_foreign_toplevel =
-		wlr_ext_foreign_toplevel_handle_v1_create(server.foreign_toplevel_list, &ext_state);
-	toplevel->view.ext_foreign_toplevel->data = &toplevel->view;
-	toplevel->view.foreign_identifier = toplevel->view.ext_foreign_toplevel->identifier;
-
-	toplevel->view.foreign_toplevel =
-		wlr_foreign_toplevel_handle_v1_create(server.foreign_toplevel_manager);
-
-	client_connect_foreign_toplevel(toplevel->view.client, toplevel->view.foreign_toplevel);
-
-	// set app_id on foreign toplevel handle
-	if (app_id)
-		wlr_foreign_toplevel_handle_v1_set_app_id(toplevel->view.foreign_toplevel, app_id);
+	view_create_foreign_toplevels(&toplevel->view, app_id, title);
 
 	// center to output if floating, also ensure it does not tile
 	if (rule && rule->state == STATE_FLOATING) {
@@ -417,15 +393,7 @@ void xdg_toplevel_unmap(struct wl_listener *listener, void *data) {
 	toplevel->view.image_capture_surface = NULL;
 	animation_cancel_view(&toplevel->view);
 
-	if (toplevel->view.ext_foreign_toplevel) {
-		wlr_ext_foreign_toplevel_handle_v1_destroy(toplevel->view.ext_foreign_toplevel);
-		toplevel->view.ext_foreign_toplevel = NULL;
-	}
-
-	if (toplevel->view.foreign_toplevel) {
-		wlr_foreign_toplevel_handle_v1_destroy(toplevel->view.foreign_toplevel);
-		toplevel->view.foreign_toplevel = NULL;
-	}
+	view_destroy_foreign_toplevels(&toplevel->view);
 
 	if (toplevel->view.node == NULL)
 		return;
@@ -440,38 +408,15 @@ void xdg_toplevel_unmap(struct wl_listener *listener, void *data) {
 		view_save_buffer(&toplevel->view);
 
 	node_t *n = toplevel->view.node;
-	output_t *m = mon;
-	desktop_t *d = NULL;
+	output_t *m = n->output ? n->output : mon;
+	desktop_t *d = desktop_for_node(n);
 	bool node_held = false;
 
-	// find the actual desktop this node belongs to by walking up to root
-	if (m && n) {
-		node_t *root = n;
-		while (root->parent != NULL)
-			root = root->parent;
-
-		// find which desktop has this root
-		desktop_t *desk;
-		wl_list_for_each(desk, &m->desk_list, link) {
-			if (desk->root == root) {
-				d = desk;
-				wlr_log(WLR_DEBUG, "Found node %u belongs to desktop %s", n->id, d->name);
-				break;
-			}
-		}
-
-		if (d == NULL) {
-			// for floating/orphaned nodes, use the node's desktop field directly
-			if (n && n->desktop != NULL) {
-				d = n->desktop;
-				m = d->output;
-				wlr_log(WLR_DEBUG, "Found node %u belongs to desktop %s (via n->desktop)", n->id, d->name);
-			} else {
-				wlr_log(WLR_ERROR, "Could not find desktop for node %u root %p, using current desktop %s", n->id,
-					(void *)root, m->desk->name);
-				d = m->desk;
-			}
-		}
+	if (d == NULL) {
+		wlr_log(WLR_ERROR, "Could not find desktop for node %u, using current desktop", n->id);
+		d = m ? m->desk : NULL;
+	} else if (d->output) {
+		m = d->output;
 	}
 
 	// freeze sibling buffers before modifying layout tree so current visual
@@ -702,8 +647,6 @@ void xdg_toplevel_destroy(struct wl_listener *listener, void *data) {
 		toplevel->xdg_decoration = NULL;
 	}
 
-	wl_list_remove(&toplevel->view.link);
-
 	free(toplevel->tag);
 	free(toplevel);
 }
@@ -800,49 +743,14 @@ void xdg_toplevel_set_title(struct wl_listener *listener, void *data) {
 	(void)data;
 	xdg_toplevel_t *toplevel = wl_container_of(listener, toplevel, set_title);
 
-	if (toplevel->view.client) {
-		const char *title = toplevel->xdg_toplevel->title;
-		if (title) {
-			strncpy(toplevel->view.client->title, title, MAXLEN - 1);
-			toplevel->view.client->title[MAXLEN - 1] = '\0';
-			wlr_log(WLR_DEBUG, "Toplevel title changed: %s", title);
-		}
-
-		if (toplevel->view.foreign_toplevel && title)
-			wlr_foreign_toplevel_handle_v1_set_title(toplevel->view.foreign_toplevel, title);
-
-		client_update_ext_foreign_toplevel(toplevel->view.client);
-
-		tabs_update_label_for_leaf(toplevel->view.node);
-
-		ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,title]\n",
-			toplevel->view.client->app_id[0] ? toplevel->view.client->app_id : "?", title ? title : "?",
-			toplevel->view.node->id);
-	}
+	view_set_title(&toplevel->view, toplevel->xdg_toplevel->title);
 }
 
 void xdg_toplevel_set_app_id(struct wl_listener *listener, void *data) {
 	(void)data;
 	xdg_toplevel_t *toplevel = wl_container_of(listener, toplevel, set_app_id);
 
-	if (toplevel->view.client) {
-		const char *app_id = toplevel->xdg_toplevel->app_id;
-		if (app_id) {
-			strncpy(toplevel->view.client->app_id, app_id, MAXLEN - 1);
-			toplevel->view.client->app_id[MAXLEN - 1] = '\0';
-			wlr_log(WLR_DEBUG, "Toplevel app_id changed: %s", app_id);
-		}
-
-		if (toplevel->view.foreign_toplevel && app_id)
-			wlr_foreign_toplevel_handle_v1_set_app_id(toplevel->view.foreign_toplevel, app_id);
-
-		client_update_ext_foreign_toplevel(toplevel->view.client);
-
-		tabs_update_label_for_leaf(toplevel->view.node);
-
-		ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,app_id]\n", app_id ? app_id : "?",
-			toplevel->view.client->title[0] ? toplevel->view.client->title : "?", toplevel->view.node->id);
-	}
+	view_set_app_id(&toplevel->view, toplevel->xdg_toplevel->app_id);
 }
 
 xdg_toplevel_t *xdg_toplevel_create(struct wlr_xdg_toplevel *xdg_toplevel) {

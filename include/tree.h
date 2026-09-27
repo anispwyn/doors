@@ -62,6 +62,8 @@ bool client_set_minimized(struct output_t *m, desktop_t *d, node_t *n, bool valu
 bool node_is_minimized(const node_t *n);
 bool node_is_invisible(const node_t *n);
 
+desktop_t *desktop_for_node(node_t *n);
+
 void desktop_minimized_forget(node_t *n);
 void desktop_minimized_clear(desktop_t *d);
 void desktop_minimized_push(desktop_t *d, node_t *n);

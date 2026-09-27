@@ -1,7 +1,6 @@
 #pragma once
 
 #include "view.h"
-
 #include <wlr/types/wlr_xdg_dialog_v1.h>
 
 typedef struct xdg_toplevel_t {
@@ -33,11 +32,6 @@ typedef struct xdg_toplevel_t {
 } xdg_toplevel_t;
 
 // helper functions
-void client_update_foreign_toplevel_state(client_t *client);
-void client_update_ext_foreign_toplevel(client_t *client);
-void client_connect_foreign_toplevel(client_t *client,
-	struct wlr_foreign_toplevel_handle_v1 *handle);
-void client_disconnect_foreign_toplevel(client_t *client);
 void xdg_toplevel_apply_decoration_mode(xdg_toplevel_t *tl);
 
 xdg_toplevel_t *xdg_toplevel_create(struct wlr_xdg_toplevel *xdg_toplevel);

@@ -849,6 +849,28 @@ bool client_set_maximized(output_t *m, desktop_t *d, node_t *n, bool value) {
 	return true;
 }
 
+desktop_t *desktop_for_node(node_t *n) {
+	if (n == NULL)
+		return NULL;
+
+	output_t *m = n->output;
+	if (m) {
+		node_t *root = n;
+		while (root->parent != NULL)
+			root = root->parent;
+
+		desktop_t *d;
+		wl_list_for_each(d, &m->desk_list, link) {
+			if (d->root == root) {
+				wlr_log(WLR_DEBUG, "Node %u belongs to desktop %s", n->id, d->name);
+				return d;
+			}
+		}
+	}
+
+	return n->desktop;
+}
+
 // drop a toplevel from whichever minimize history holds it
 void desktop_minimized_forget(node_t *n) {
 	if (n == NULL || n->minimize_link.prev == NULL)

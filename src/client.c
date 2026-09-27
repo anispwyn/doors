@@ -1,6 +1,7 @@
 #include "client.h"
 #include "types.h"
 #include "view.h"
+#include <string.h>
 
 // The view is the first member of both subtypes, so a view_t * is all any of
 // these accessors ever need.
@@ -70,6 +71,22 @@ void client_set_visible(client_t *client, bool show) {
 
 node_t *client_get_node(client_t *client) {
 	return client && client->view ? client->view->node : NULL;
+}
+
+void client_set_title(client_t *client, const char *title) {
+	if (client == NULL || title == NULL)
+		return;
+
+	strncpy(client->title, title, MAXLEN - 1);
+	client->title[MAXLEN - 1] = '\0';
+}
+
+void client_set_app_id(client_t *client, const char *app_id) {
+	if (client == NULL || app_id == NULL)
+		return;
+
+	strncpy(client->app_id, app_id, MAXLEN - 1);
+	client->app_id[MAXLEN - 1] = '\0';
 }
 
 output_t *client_get_output(client_t *client) {

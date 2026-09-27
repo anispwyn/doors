@@ -2,8 +2,10 @@
 #include "rule.h"
 #include "scroller.h"
 #include "settings.h"
+#include "surface.h"
 #include "tree.h"
 #include "types.h"
+#include "view.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -272,6 +274,26 @@ void rule_apply_consequence(node_t *node, client_t *client, const rule_consequen
 		client->shadow_offset_y = settings.shadow_offset_y;
 		memcpy(client->shadow_color, settings.shadow_color, sizeof(settings.shadow_color));
 	}
+}
+
+// build the shader/region nodes a rule asks for, on top of the flags
+// rule_apply_consequence already set on the client
+void rule_apply_view_consequence(view_t *view, const rule_consequence_t *rule) {
+	if (view == NULL || rule == NULL || view->client == NULL)
+		return;
+
+	if (rule->has & RULE_TYPE_BLUR)
+		surface_client_set_effect(view->client, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
+	if (rule->has & RULE_TYPE_MICA)
+		surface_client_set_effect(view->client, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
+	if (rule->has & RULE_TYPE_ACRYLIC)
+		surface_client_set_effect(view->client, EFFECT_ACRYLIC, rule->flags & RULE_TYPE_ACRYLIC);
+	if (rule->has & RULE_TYPE_BORDER_RADIUS)
+		surface_client_set_border_radius(view->client, rule->border_radius);
+	if (rule->has & RULE_TYPE_SHADOW)
+		surface_client_set_shadow(view->client, rule->flags & RULE_TYPE_SHADOW);
+	if (rule->has & RULE_TYPE_OPACITY)
+		surface_set_opacity(&view->scene_tree->node, rule->opacity);
 }
 
 void rule_init(void) {

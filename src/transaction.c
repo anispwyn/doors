@@ -180,7 +180,9 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 		return;
 	}
 
-	bool ready = node->client->view ? view_is_ready(node->client->view) : true;
+	view_t *view = node->client->view;
+
+	bool ready = view_is_ready(view);
 	if (!ready)
 		return;
 
@@ -341,16 +343,17 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 	if (!snapshot_resize && node->client->view)
 		view_center_and_clip_surface(node->client->view);
 
-	xwayland_toplevel_t *xv = view_to_xwayland(node->client->view);
-	if (xv && xv->xwayland_surface) {
-		struct wlr_xwayland_surface *xsurface = xv->xwayland_surface;
+	// xwayland has no configure serial, so a transaction is only matched by
+	// pushing the size and letting the client redraw
+	if (view_to_xwayland(view)) {
 		wlr_log(WLR_INFO, "Transaction xwayland node %u: target=(%d,%d %dx%d) current=(%dx%d) state=%d",
-			node->id, rect->x, rect->y, rect->width, rect->height, xsurface->width, xsurface->height,
-			instruction->state);
-		if ((int)rect->width != xsurface->width || (int)rect->height != xsurface->height) {
-			wlr_xwayland_surface_configure(xsurface, rect->x, rect->y, rect->width, rect->height);
-			node->client->view->geometry.width = rect->width;
-			node->client->view->geometry.height = rect->height;
+			node->id, rect->x, rect->y, rect->width, rect->height, view->geometry.width,
+			view->geometry.height, instruction->state);
+		if ((int)rect->width != (int)view->geometry.width ||
+				(int)rect->height != (int)view->geometry.height) {
+			view_configure(view, *rect);
+			view->geometry.width = rect->width;
+			view->geometry.height = rect->height;
 			wlr_log(WLR_INFO, "Transaction configured Xwayland: (%d,%d %dx%d)", rect->x, rect->y, rect->width,
 				rect->height);
 		} else {

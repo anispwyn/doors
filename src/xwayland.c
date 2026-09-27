@@ -13,7 +13,6 @@
 #include "seat.h"
 #include "server.h"
 #include "surface.h"
-#include "tabs.h"
 #include "tree.h"
 #include "types.h"
 #include "workspace.h"
@@ -275,10 +274,7 @@ static void unmanaged_handle_override_redirect(struct wl_listener *listener, voi
 	unmanaged_handle_destroy(&surface->destroy, NULL);
 	xsurface->data = NULL;
 
-	xwayland_toplevel_t *toplevel = xwayland_toplevel_create(xsurface);
-	if (toplevel && associated) {
-		// idk
-	}
+	xwayland_toplevel_create(xsurface);
 }
 
 static struct xwayland_unmanaged_t *xwayland_unmanaged_create(struct wlr_xwayland_surface *xsurface) {
@@ -333,8 +329,12 @@ static bool xwayland_toplevel_wants_floating(struct xwayland_toplevel_t *xwaylan
 
 static void xwayland_toplevel_configure(xwayland_toplevel_t *xwayland_toplevel, int x, int y, int width,
 		int height) {
-	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
-	wlr_xwayland_surface_configure(xsurface, x, y, width, height);
+	view_configure(&xwayland_toplevel->view, (struct wlr_box){
+		.x = x,
+		.y = y,
+		.width = width,
+		.height = height,
+	});
 
 	if (xwayland_toplevel->view.scene_tree && xwayland_toplevel->view.client &&
 			xwayland_toplevel->view.client->state == STATE_FLOATING) {
@@ -362,7 +362,8 @@ static void xwayland_sync_configure(xwayland_toplevel_t *xwayland_toplevel) {
 	if (rect.width < 1 || rect.height < 1)
 		return;
 
-	wlr_xwayland_surface_configure(xsurface, rect.x, rect.y, rect.width, rect.height);
+	view_configure(&xwayland_toplevel->view, rect);
+
 	xwayland_toplevel->view.geometry.width = rect.width;
 	xwayland_toplevel->view.geometry.height = rect.height;
 }
@@ -385,7 +386,7 @@ static void xwayland_view_impl_set_activated(view_t *view, bool activated) {
 		wlr_xwayland_surface_set_fullscreen(surface, surface->fullscreen);
 }
 
-void xwayland_toplevel_close(xwayland_toplevel_t *xwayland_toplevel) {
+static void xwayland_toplevel_close(xwayland_toplevel_t *xwayland_toplevel) {
 	if (!xwayland_toplevel || !xwayland_toplevel->xwayland_surface)
 		return;
 
@@ -401,10 +402,22 @@ static void xwayland_view_impl_close(view_t *view) {
 	xwayland_toplevel_close(view_to_xwayland(view));
 }
 
+static void xwayland_view_impl_configure(view_t *view, struct wlr_box rect) {
+	xwayland_toplevel_t *xwayland_toplevel = view_to_xwayland(view);
+	if (xwayland_toplevel == NULL || xwayland_toplevel->xwayland_surface == NULL)
+		return;
+
+	// x11 has no configure serial to correlate against and no dedup of its own,
+	// callers decide whether a repeat is worth sending
+	wlr_xwayland_surface_configure(xwayland_toplevel->xwayland_surface, rect.x, rect.y, rect.width,
+		rect.height);
+}
+
 static const view_impl_t xwayland_view_impl = {
 	.set_activated = xwayland_view_impl_set_activated,
 	.close = xwayland_view_impl_close,
 	.set_decorations = xwayland_view_impl_set_decorations,
+	.configure = xwayland_view_impl_configure,
 };
 
 static void handle_commit(struct wl_listener *listener, void *data) {
@@ -509,15 +522,8 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	const char *app_id = xsurface->class;
 	const char *title = xsurface->title;
 
-	if (app_id) {
-		strncpy(client->app_id, app_id, MAXLEN - 1);
-		client->app_id[MAXLEN - 1] = '\0';
-	}
-
-	if (title) {
-		strncpy(client->title, title, MAXLEN - 1);
-		client->title[MAXLEN - 1] = '\0';
-	}
+	client_set_app_id(client, app_id);
+	client_set_title(client, title);
 
 	rule_consequence_t *rule = find_matching_rule(app_id, title, NULL);
 
@@ -546,24 +552,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	node->output = target_monitor;
 
 	rule_apply_consequence(node, client, rule);
-
-	if (rule) {
-		if (rule->has & RULE_TYPE_BLUR)
-			surface_client_set_effect(xwayland_toplevel->view.client, EFFECT_BLUR,
-				rule->flags & RULE_TYPE_BLUR);
-		if (rule->has & RULE_TYPE_MICA)
-			surface_client_set_effect(xwayland_toplevel->view.client, EFFECT_MICA,
-				rule->flags & RULE_TYPE_MICA);
-		if (rule->has & RULE_TYPE_ACRYLIC)
-			surface_client_set_effect(xwayland_toplevel->view.client, EFFECT_ACRYLIC,
-				rule->flags & RULE_TYPE_ACRYLIC);
-		if (rule->has & RULE_TYPE_BORDER_RADIUS)
-			surface_client_set_border_radius(xwayland_toplevel->view.client, rule->border_radius);
-		if (rule->has & RULE_TYPE_SHADOW)
-			surface_client_set_shadow(xwayland_toplevel->view.client, rule->flags & RULE_TYPE_SHADOW);
-		if (rule->has & RULE_TYPE_OPACITY)
-			surface_set_opacity(&xwayland_toplevel->view.scene_tree->node, rule->opacity);
-	}
+	rule_apply_view_consequence(&xwayland_toplevel->view, rule);
 
 	render_unfocused_client_update(client);
 
@@ -571,24 +560,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		title ? title : "untitled", app_id ? app_id : "unknown", wants_float, xsurface->width,
 		xsurface->height);
 
-	struct wlr_ext_foreign_toplevel_handle_v1_state ext_state = {
-		.app_id = app_id,
-		.title = title,
-	};
-	xwayland_toplevel->view.ext_foreign_toplevel =
-		wlr_ext_foreign_toplevel_handle_v1_create(server.foreign_toplevel_list, &ext_state);
-	xwayland_toplevel->view.ext_foreign_toplevel->data = &xwayland_toplevel->view;
-	xwayland_toplevel->view.foreign_identifier =
-		xwayland_toplevel->view.ext_foreign_toplevel->identifier;
-
-	xwayland_toplevel->view.foreign_toplevel =
-		wlr_foreign_toplevel_handle_v1_create(server.foreign_toplevel_manager);
-
-	client_connect_foreign_toplevel(xwayland_toplevel->view.client,
-		xwayland_toplevel->view.foreign_toplevel);
-
-	if (app_id)
-		wlr_foreign_toplevel_handle_v1_set_app_id(xwayland_toplevel->view.foreign_toplevel, app_id);
+	view_create_foreign_toplevels(&xwayland_toplevel->view, app_id, title);
 
 	bool rule_forces_float = rule && rule->has & RULE_TYPE_STATE && rule->state == STATE_FLOATING;
 	bool layout_floated = false;
@@ -682,9 +654,8 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		client && client->title[0] ? client->title : "?", node->id);
 
 	if (!wants_float && !layout_floated && xwayland_toplevel->view.client) {
-		client_t *client = xwayland_toplevel->view.client;
 		struct wlr_box *rect = &client->tiled_rectangle;
-		wlr_xwayland_surface_configure(xsurface, rect->x, rect->y, rect->width, rect->height);
+		view_configure(&xwayland_toplevel->view, *rect);
 		xwayland_toplevel->view.geometry.width = rect->width;
 		xwayland_toplevel->view.geometry.height = rect->height;
 		wlr_scene_node_set_position(&xwayland_toplevel->view.scene_tree->node, rect->x, rect->y);
@@ -701,6 +672,8 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	// x11 analogue of the xdg configure ack: the surface is mapped and has drawn,
 	// so the client is ready to be arranged and shown.
 	xwayland_toplevel->view.configured = true;
+
+	client_update_foreign_toplevel_state(client);
 
 	wlr_log(WLR_DEBUG, "XWayland window map complete: scene_tree enabled=%d shown=%d",
 		xwayland_toplevel->view.scene_tree->node.enabled, client->flags.shown);
@@ -719,15 +692,7 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 
 	xwayland_toplevel->view.image_capture_surface = NULL;
 
-	if (xwayland_toplevel->view.ext_foreign_toplevel) {
-		wlr_ext_foreign_toplevel_handle_v1_destroy(xwayland_toplevel->view.ext_foreign_toplevel);
-		xwayland_toplevel->view.ext_foreign_toplevel = NULL;
-	}
-
-	if (xwayland_toplevel->view.foreign_toplevel) {
-		wlr_foreign_toplevel_handle_v1_destroy(xwayland_toplevel->view.foreign_toplevel);
-		xwayland_toplevel->view.foreign_toplevel = NULL;
-	}
+	view_destroy_foreign_toplevels(&xwayland_toplevel->view);
 
 	if (xwayland_toplevel->view.scene_tree) {
 		wlr_scene_node_set_enabled(&xwayland_toplevel->view.scene_tree->node, false);
@@ -735,30 +700,10 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 	}
 	if (xwayland_toplevel->view.node) {
 		output_t *mon = xwayland_toplevel->view.node->output;
-		desktop_t *desk = NULL;
+		desktop_t *desk = desktop_for_node(xwayland_toplevel->view.node);
 
-		if (mon) {
-			node_t *root = xwayland_toplevel->view.node;
-			while (root->parent != NULL)
-				root = root->parent;
-
-			desktop_t *d;
-			wl_list_for_each(d, &mon->desk_list, link) {
-				if (d->root == root) {
-					desk = d;
-					break;
-				}
-			}
-		}
-
-		// floating and orphaned toplevels only know their desktop
-		if (desk == NULL && xwayland_toplevel->view.node->desktop != NULL)
-			desk = xwayland_toplevel->view.node->desktop;
-
-		if (xwayland_toplevel->view.client) {
-			view_disconnect_outputs_update(&xwayland_toplevel->view);
+		if (xwayland_toplevel->view.client)
 			xwayland_toplevel->view.client->view = NULL;
-		}
 
 		if (desk) {
 			if (xwayland_toplevel->view.client &&
@@ -886,9 +831,9 @@ static void handle_request_minimize(struct wl_listener *listener, void *data) {
 	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 	struct wlr_xwayland_minimize_event *ev = data;
 
-	if (xwayland_toplevel->view.node != NULL) {
+	if (view_is_ready(&xwayland_toplevel->view) && xwayland_toplevel->view.node) {
 		output_t *m = xwayland_toplevel->view.node->output;
-		desktop_t *d = xwayland_toplevel->view.node->desktop;
+		desktop_t *d = m != NULL ? m->desk : NULL;
 		client_set_minimized(m, d, xwayland_toplevel->view.node, ev->minimize);
 	}
 
@@ -951,11 +896,7 @@ static void handle_set_title(struct wl_listener *listener, void *data) {
 	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, set_title);
 	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	if (xwayland_toplevel->view.client && xsurface->title) {
-		strncpy(xwayland_toplevel->view.client->title, xsurface->title, MAXLEN - 1);
-		xwayland_toplevel->view.client->title[MAXLEN - 1] = '\0';
-		tabs_update_label_for_leaf(xwayland_toplevel->view.node);
-	}
+	view_set_title(&xwayland_toplevel->view, xsurface->title);
 }
 
 static void handle_set_class(struct wl_listener *listener, void *data) {
@@ -963,11 +904,7 @@ static void handle_set_class(struct wl_listener *listener, void *data) {
 	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, set_class);
 	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	if (xwayland_toplevel->view.client && xsurface->class) {
-		strncpy(xwayland_toplevel->view.client->app_id, xsurface->class, MAXLEN - 1);
-		xwayland_toplevel->view.client->app_id[MAXLEN - 1] = '\0';
-		tabs_update_label_for_leaf(xwayland_toplevel->view.node);
-	}
+	view_set_app_id(&xwayland_toplevel->view, xsurface->class);
 }
 
 static void handle_set_hints(struct wl_listener *listener, void *data) {
@@ -1176,8 +1113,6 @@ static void xwayland_toplevel_destroy(xwayland_toplevel_t *xwayland_toplevel) {
 	wl_list_remove(&xwayland_toplevel->associate.link);
 	wl_list_remove(&xwayland_toplevel->dissociate.link);
 	wl_list_remove(&xwayland_toplevel->override_redirect.link);
-
-	wl_list_remove(&xwayland_toplevel->view.link);
 
 	view_destroy(&xwayland_toplevel->view);
 

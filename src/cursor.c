@@ -172,16 +172,8 @@ static void apply_leaf_positions(desktop_t *d) {
 		}
 
 		view_t *tl = n->client ? n->client->view : NULL;
-		if (tl && tl->type == VIEW_XDG) {
-			if (r.width != (int)tl->last_requested.width || r.height != (int)tl->last_requested.height) {
-				wlr_xdg_toplevel_set_size(view_to_xdg(tl)->xdg_toplevel, r.width, r.height);
-				tl->last_requested.width = r.width;
-				tl->last_requested.height = r.height;
-			}
-		} else if (tl && tl->type == VIEW_XWAYLAND) {
-			wlr_xwayland_surface_configure(view_to_xwayland(tl)->xwayland_surface, r.x, r.y, r.width,
-				r.height);
-		}
+		if (tl)
+			view_configure(tl, r);
 
 		unsigned int bw = effective_border_width(d);
 		if (bw != 0) {
@@ -339,9 +331,13 @@ static void process_cursor_move(void) {
 	}
 
 	xwayland_toplevel_t *xv = view_to_xwayland(view);
-	if (xv) {
-		wlr_xwayland_surface_configure(xv->xwayland_surface, (int)x, (int)y, xv->xwayland_surface->width,
-			xv->xwayland_surface->height);
+	if (xv && xv->xwayland_surface) {
+		view_configure(view, (struct wlr_box){
+			.x = (int)x,
+			.y = (int)y,
+			.width = xv->xwayland_surface->width,
+			.height = xv->xwayland_surface->height,
+		});
 	}
 }
 
@@ -389,41 +385,6 @@ static void process_cursor_resize(void) {
 	if (new_height < MIN_HEIGHT)
 		new_height = MIN_HEIGHT;
 
-	if (view && view->type == VIEW_XWAYLAND && view->node && view->node->client) {
-		client_t *c = view->node->client;
-		c->floating_rectangle.x = new_left;
-		c->floating_rectangle.y = new_top;
-		c->floating_rectangle.width = new_width;
-		c->floating_rectangle.height = new_height;
-
-		if (view->scene_tree) {
-			struct wlr_scene_node *stn = &view->scene_tree->node;
-			if (stn->x != new_left || stn->y != new_top) {
-				wlr_scene_node_set_position(stn, new_left, new_top);
-				if (view->node->output)
-					effects_dirty_corner_masks(view->node->output);
-			}
-		}
-
-		wlr_xwayland_surface_configure(view_to_xwayland(view)->xwayland_surface, new_left, new_top,
-			new_width, new_height);
-
-		// update borders
-		unsigned int bw = effective_border_width(view->node->desktop);
-		if (bw != 0) {
-			const struct wlr_box geo = {
-				0,
-				0,
-				new_width,
-				new_height
-			};
-			update_borders(view->border_tree, view->border_rects, geo, bw);
-			update_border_colors(c);
-		}
-
-		return;
-	}
-
 	if (!view || !view->node || !view->node->client)
 		return;
 
@@ -433,18 +394,21 @@ static void process_cursor_resize(void) {
 	c->floating_rectangle.width = new_width;
 	c->floating_rectangle.height = new_height;
 
-	struct wlr_scene_node *stn = &view->scene_tree->node;
-	if (stn->x != new_left || stn->y != new_top) {
-		wlr_scene_node_set_position(stn, new_left, new_top);
-		if (view->node->output)
-			effects_dirty_corner_masks(view->node->output);
+	if (view->scene_tree) {
+		struct wlr_scene_node *stn = &view->scene_tree->node;
+		if (stn->x != new_left || stn->y != new_top) {
+			wlr_scene_node_set_position(stn, new_left, new_top);
+			if (view->node->output)
+				effects_dirty_corner_masks(view->node->output);
+		}
 	}
-	if ((int)view->last_requested.width != new_width ||
-			(int)view->last_requested.height != new_height) {
-		wlr_xdg_toplevel_set_size(view_to_xdg(view)->xdg_toplevel, new_width, new_height);
-		view->last_requested.width = new_width;
-		view->last_requested.height = new_height;
-	}
+
+	view_configure(view, (struct wlr_box){
+		.x = new_left,
+		.y = new_top,
+		.width = new_width,
+		.height = new_height,
+	});
 
 	// update borders
 	unsigned int bw = effective_border_width(view->node->desktop);

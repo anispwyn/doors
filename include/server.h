@@ -31,7 +31,6 @@ enum cursor_mode {
 
 typedef struct output_t output_t;
 struct ime_relay_t;
-typedef view_t view_t;
 
 typedef struct server_t {
 	struct wl_display *wl_display;
