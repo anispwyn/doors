@@ -2,7 +2,6 @@
 #include "once.h"
 #include "output.h"
 #include "server.h"
-#include "toplevel.h"
 #include "tree.h"
 #include <pthread.h>
 #include <signal.h>
@@ -182,7 +181,7 @@ static void handle_xdg_activation_request_activate(struct wl_listener *listener,
 		return;
 	}
 
-	toplevel_t *toplevel = xdg_surface->data;
+	view_t *toplevel = xdg_surface->data;
 	if (toplevel == NULL)
 		return;
 

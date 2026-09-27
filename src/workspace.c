@@ -6,7 +6,6 @@
 #include "once.h"
 #include "output.h"
 #include "server.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
@@ -40,8 +39,7 @@ static struct wlr_box window_target_rect(node_t *n) {
 typedef struct {
 	desktop_t *desk;
 	node_t *tree_cursor;
-	struct toplevel_t *tl_cursor;
-	struct xwayland_toplevel_t *xw_cursor;
+	view_t *cursor;
 } desktop_window_iter_t;
 
 static bool node_is_outside_tree(node_t *n, desktop_t *d) {
@@ -71,27 +69,14 @@ static bool desktop_window_iter_advance(desktop_window_iter_t *it, node_t **out_
 			continue;
 		}
 
-		if (it->tl_cursor) {
-			toplevel_t *tl = it->tl_cursor;
-			it->tl_cursor = (tl->link.next == &server.toplevels) ? NULL : wl_container_of(tl->link.next, tl,
+		if (it->cursor) {
+			view_t *view = it->cursor;
+			it->cursor = (view->link.next == &server.views) ? NULL : wl_container_of(view->link.next, view,
 				link);
-			if (tl->mapped && tl->scene_tree && tl->node && tl->node->client &&
-					tl->node->desktop == it->desk && node_is_outside_tree(tl->node, it->desk)) {
-				*out_node = tl->node;
-				*out_tree = tl->scene_tree;
-				return true;
-			}
-			continue;
-		}
-
-		if (it->xw_cursor) {
-			xwayland_toplevel_t *xw = it->xw_cursor;
-			it->xw_cursor = (xw->link.next == &server.xwayland.views) ? NULL : wl_container_of(xw->link.next,
-				xw, link);
-			if (xw->mapped && xw->scene_tree && xw->node && xw->node->client &&
-					xw->node->desktop == it->desk && node_is_outside_tree(xw->node, it->desk)) {
-				*out_node = xw->node;
-				*out_tree = xw->scene_tree;
+			if (view->mapped && view->scene_tree && view->node && view->node->client &&
+					view->node->desktop == it->desk && node_is_outside_tree(view->node, it->desk)) {
+				*out_node = view->node;
+				*out_tree = view->scene_tree;
 				return true;
 			}
 			continue;
@@ -106,8 +91,7 @@ static void desktop_window_iter_init(desktop_window_iter_t *it, desktop_t *d) {
 	it->desk = d;
 	if (d && d->root)
 		it->tree_cursor = first_extrema(d->root);
-	it->tl_cursor = wl_container_of(server.toplevels.next, (struct toplevel_t *)0, link);
-	it->xw_cursor = wl_container_of(server.xwayland.views.next, (struct xwayland_toplevel_t *)0, link);
+	it->cursor = wl_container_of(server.views.next, (view_t *)0, link);
 }
 
 struct desktop_t *find_desktop_by_name(const char *name) {
@@ -294,8 +278,8 @@ found_desktop:
 	if (should_show) {
 		node->client->flags.shown = true;
 		bool already_configured = true;
-		if (node->client->toplevel)
-			already_configured = node->client->toplevel->configured;
+		if (node->client->view)
+			already_configured = node->client->view->configured;
 		if (already_configured)
 			wlr_scene_node_set_enabled(&scene_tree->node, true);
 	} else {
@@ -307,34 +291,11 @@ found_desktop:
 static void update_all_toplevels_visibility(output_t *m, desktop_t *current_desktop) {
 	int window_count = 0;
 
-	struct toplevel_t *toplevel;
-	wl_list_for_each(toplevel, &server.toplevels, link) {
+	view_t *toplevel;
+	wl_list_for_each(toplevel, &server.views, link) {
 		if (!toplevel->mapped || !toplevel->scene_tree || !toplevel->node)
 			continue;
 		update_window_visibility(toplevel->node, m, current_desktop, &window_count);
-	}
-
-	desktop_t *d;
-	wl_list_for_each(d, &m->desk_list, link) {
-		if (d->root != NULL) {
-			node_t *n = first_extrema(d->root);
-			while (n != NULL) {
-				if (n->client && n->client->xwayland_view)
-					update_window_visibility(n, m, current_desktop, &window_count);
-				n = next_leaf(n, d->root);
-			}
-		}
-	}
-
-	struct xwayland_toplevel_t *xwayland_view;
-	wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-		if (!xwayland_view->mapped || !xwayland_view->scene_tree || !xwayland_view->node)
-			continue;
-
-		client_state_t st = xwayland_view->node->client ? xwayland_view->node->client->state :
-			STATE_TILED;
-		if (st == STATE_FLOATING || st == STATE_FULLSCREEN)
-			update_window_visibility(xwayland_view->node, m, current_desktop, &window_count);
 	}
 }
 

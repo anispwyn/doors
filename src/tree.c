@@ -9,12 +9,12 @@
 #include "scratchpad.h"
 #include "server.h"
 #include "tabs.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "tree_focus.h"
 #include "types.h"
 #include "workspace.h"
+#include "xdg_toplevel.h"
 #include "xwayland.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -642,10 +642,7 @@ static void close_node(node_t *n) {
 	if (n == NULL || n->client == NULL)
 		return;
 
-	if (n->client->toplevel != NULL)
-		wlr_xdg_toplevel_send_close(n->client->toplevel->xdg_toplevel);
-	else
-		xwayland_view_close(n->client->xwayland_view);
+	view_close(n->client->view);
 }
 
 void kill_node(desktop_t *d, node_t *n) {
@@ -653,7 +650,7 @@ void kill_node(desktop_t *d, node_t *n) {
 		return;
 
 	// freeze buffers before closing nodes
-	toplevel_freeze_sibling_buffers(d, n);
+	view_freeze_sibling_buffers(d, n);
 
 	close_node(n);
 }
@@ -692,11 +689,11 @@ void swap_nodes(output_t *m1, desktop_t *d1, node_t *n1, output_t *m2, desktop_t
 	n2->sticky = tmp_sticky;
 	n2->private_node = tmp_private;
 
-	if (c1 != NULL && c1->toplevel != NULL)
-		c1->toplevel->node = n2;
+	if (c1 != NULL && c1->view != NULL)
+		c1->view->node = n2;
 
-	if (c2 != NULL && c2->toplevel != NULL)
-		c2->toplevel->node = n1;
+	if (c2 != NULL && c2->view != NULL)
+		c2->view->node = n1;
 
 	if (n1_focused)
 		focus_node(m2, d2, n2);
@@ -751,15 +748,19 @@ bool set_state(output_t *m, desktop_t *d, node_t *n, client_state_t s) {
 }
 
 static void tell_client_fullscreen(node_t *n, bool value) {
-	if (n->client->toplevel != NULL && n->client->toplevel->xdg_toplevel != NULL)
-		wlr_xdg_toplevel_set_fullscreen(n->client->toplevel->xdg_toplevel, value);
-	else if (n->client->xwayland_view != NULL)
-		wlr_xwayland_surface_set_fullscreen(n->client->xwayland_view->xwayland_surface, value);
+	view_t *view = n->client ? n->client->view : NULL;
+	xdg_toplevel_t *xdg = view_to_xdg(view);
+	xwayland_toplevel_t *xwayland = view_to_xwayland(view);
+	if (xdg != NULL && xdg->xdg_toplevel != NULL)
+		wlr_xdg_toplevel_set_fullscreen(xdg->xdg_toplevel, value);
+	else if (xwayland != NULL)
+		wlr_xwayland_surface_set_fullscreen(xwayland->xwayland_surface, value);
 }
 
 static void tell_client_maximized(node_t *n, bool value) {
-	if (n->client->toplevel != NULL && n->client->toplevel->xdg_toplevel != NULL)
-		wlr_xdg_toplevel_set_maximized(n->client->toplevel->xdg_toplevel, value);
+	xdg_toplevel_t *xdg = view_to_xdg(n->client ? n->client->view : NULL);
+	if (xdg != NULL && xdg->xdg_toplevel != NULL)
+		wlr_xdg_toplevel_set_maximized(xdg->xdg_toplevel, value);
 }
 
 void client_set_fullscreen(output_t *m, desktop_t *d, node_t *n, bool value) {
@@ -800,7 +801,7 @@ void client_set_fullscreen(output_t *m, desktop_t *d, node_t *n, bool value) {
 	if (!value)
 		node_set_hidden(n, false);
 
-	if (n->client->type != VIEW_NONE)
+	if (n->client->view != NULL)
 		client_update_foreign_toplevel_state(n->client);
 }
 
@@ -842,7 +843,7 @@ bool client_set_maximized(output_t *m, desktop_t *d, node_t *n, bool value) {
 	arrange(m, d, true);
 	announce_state(n);
 
-	if (c->type != VIEW_NONE)
+	if (c->view != NULL)
 		client_update_foreign_toplevel_state(c);
 
 	return true;
@@ -956,7 +957,7 @@ bool client_set_minimized(output_t *m, desktop_t *d, node_t *n, bool value) {
 		announce_state(n);
 	}
 
-	if (c->type != VIEW_NONE)
+	if (c->view != NULL)
 		client_update_foreign_toplevel_state(c);
 
 	return true;

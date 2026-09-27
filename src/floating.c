@@ -4,10 +4,10 @@
 #include "layout.h"
 #include "output.h"
 #include "server.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
+#include "xdg_toplevel.h"
 #include "xwayland.h"
 #include <stdlib.h>
 #include <wlr/types/wlr_scene.h>
@@ -36,17 +36,10 @@ int desktop_toplevels(desktop_t *d, node_t ***out_nodes) {
 			if (n->client != NULL)
 				count++;
 
-	toplevel_t *toplevel;
-	wl_list_for_each(toplevel, &server.toplevels, link) {
+	view_t *toplevel;
+	wl_list_for_each(toplevel, &server.views, link) {
 		if (toplevel->mapped && toplevel->node != NULL && toplevel->node->client != NULL &&
 			toplevel->node->desktop == d && node_outside_tree(toplevel->node, d))
-			count++;
-	}
-
-	xwayland_toplevel_t *xwayland_view;
-	wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-		if (xwayland_view->mapped && xwayland_view->node != NULL && xwayland_view->node->client != NULL &&
-			xwayland_view->node->desktop == d && node_outside_tree(xwayland_view->node, d))
 			count++;
 	}
 
@@ -64,16 +57,10 @@ int desktop_toplevels(desktop_t *d, node_t ***out_nodes) {
 				nodes[index++] = n;
 	}
 
-	wl_list_for_each(toplevel, &server.toplevels, link) {
+	wl_list_for_each(toplevel, &server.views, link) {
 		if (toplevel->mapped && toplevel->node != NULL && toplevel->node->client != NULL &&
 			toplevel->node->desktop == d && node_outside_tree(toplevel->node, d))
 			nodes[index++] = toplevel->node;
-	}
-
-	wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-		if (xwayland_view->mapped && xwayland_view->node != NULL && xwayland_view->node->client != NULL &&
-			xwayland_view->node->desktop == d && node_outside_tree(xwayland_view->node, d))
-			nodes[index++] = xwayland_view->node;
 	}
 
 	*out_nodes = nodes;
@@ -90,17 +77,10 @@ bool desktop_has_toplevels(desktop_t *d) {
 				return true;
 	}
 
-	toplevel_t *toplevel;
-	wl_list_for_each(toplevel, &server.toplevels, link) {
+	view_t *toplevel;
+	wl_list_for_each(toplevel, &server.views, link) {
 		if (toplevel->mapped && toplevel->node != NULL && toplevel->node->client != NULL &&
 			toplevel->node->desktop == d)
-			return true;
-	}
-
-	xwayland_toplevel_t *xwayland_view;
-	wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-		if (xwayland_view->mapped && xwayland_view->node != NULL && xwayland_view->node->client != NULL &&
-			xwayland_view->node->desktop == d)
 			return true;
 	}
 
@@ -139,10 +119,11 @@ struct wlr_box node_current_rect(node_t *n) {
 static struct wlr_box client_requested_size(client_t *c, struct wlr_box area) {
 	struct wlr_box size = {0};
 
-	if (c->toplevel != NULL && c->toplevel->xdg_toplevel != NULL)
-		size = c->toplevel->xdg_toplevel->base->geometry;
-	else if (c->xwayland_view != NULL)
-		size = c->xwayland_view->geometry;
+	xdg_toplevel_t *xdg = view_to_xdg(c->view);
+	if (xdg != NULL && xdg->xdg_toplevel != NULL)
+		size = xdg->xdg_toplevel->base->geometry;
+	else if (c->view != NULL)
+		size = c->view->geometry;
 
 	if (size.width > MIN_WIDTH && size.height > MIN_HEIGHT)
 		return size;
@@ -232,8 +213,8 @@ void float_node_set_rect(node_t *n, struct wlr_box r) {
 	apply_float_rect(n, r);
 	if (scene_tree != NULL)
 		wlr_scene_node_set_position(&scene_tree->node, r.x, r.y);
-	if (n->client->toplevel != NULL)
-		toplevel_center_and_clip_surface(n->client->toplevel);
+	if (n->client->view != NULL)
+		view_center_and_clip_surface(n->client->view);
 
 	transaction_commit_dirty();
 }
@@ -281,11 +262,11 @@ static void float_node_impl(output_t *m, desktop_t *d, node_t *n, const struct w
 	} else if (IS_TILED(c) && c->tiled_rectangle.width > 0 && c->tiled_rectangle.height > 0) {
 		// keep the place the toplevel had in the tree, sized to its own geometry
 		target = c->tiled_rectangle;
-		if (c->toplevel != NULL && c->toplevel->geometry.width > 0 && c->toplevel->geometry.height > 0) {
-			int off_x = (target.width - c->toplevel->geometry.width) / 2;
-			int off_y = (target.height - c->toplevel->geometry.height) / 2;
-			target.width = c->toplevel->geometry.width;
-			target.height = c->toplevel->geometry.height;
+		if (c->view != NULL && c->view->geometry.width > 0 && c->view->geometry.height > 0) {
+			int off_x = (target.width - c->view->geometry.width) / 2;
+			int off_y = (target.height - c->view->geometry.height) / 2;
+			target.width = c->view->geometry.width;
+			target.height = c->view->geometry.height;
 			target.x += off_x > 0 ? off_x : 0;
 			target.y += off_y > 0 ? off_y : 0;
 		}
@@ -330,8 +311,8 @@ static void float_node_impl(output_t *m, desktop_t *d, node_t *n, const struct w
 		node_set_dirty(n);
 	}
 
-	if (c->toplevel != NULL)
-		toplevel_center_and_clip_surface(c->toplevel);
+	if (c->view != NULL)
+		view_center_and_clip_surface(c->view);
 
 	node_set_dirty(n);
 	if (announce)
@@ -371,8 +352,8 @@ void tile_node(output_t *m, desktop_t *d, node_t *n) {
 		ipc_put_status(SUB_MASK_NODE_STATE, "node_state[%s,%s,%u,%c]\n", c->app_id[0] ? c->app_id : "?",
 			c->title[0] ? c->title : "?", n->id, 'T');
 	} else if (c->state == STATE_TILED) {
-		if (c->toplevel != NULL) {
-			toplevel_t *tl = c->toplevel;
+		if (c->view != NULL) {
+			view_t *tl = c->view;
 			int off_x = (c->tiled_rectangle.width - tl->geometry.width) / 2;
 			int off_y = (c->tiled_rectangle.height - tl->geometry.height) / 2;
 			c->floating_rectangle = (struct wlr_box){
@@ -395,8 +376,8 @@ void tile_node(output_t *m, desktop_t *d, node_t *n) {
 
 		set_state(m, d, n, STATE_FLOATING);
 
-		if (c->toplevel != NULL)
-			toplevel_center_and_clip_surface(c->toplevel);
+		if (c->view != NULL)
+			view_center_and_clip_surface(c->view);
 
 		node_set_dirty(n);
 		transaction_commit_dirty();
@@ -407,8 +388,7 @@ bool floating_init_client(output_t *m, desktop_t *d, client_t *c) {
 	if (c == NULL || d == NULL)
 		return false;
 
-	node_t *n = c->toplevel != NULL ? c->toplevel->node : (c->xwayland_view != NULL ?
-		c->xwayland_view->node : NULL);
+	node_t *n = c->view ? c->view->node : NULL;
 	if (n == NULL)
 		return false;
 

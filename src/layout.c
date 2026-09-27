@@ -3,11 +3,11 @@
 #include "layout.h"
 #include "master_stack.h"
 #include "scroller.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "tree_layout.h"
 #include "types.h"
+#include "view.h"
 #include <stdlib.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/util/log.h>
@@ -82,8 +82,8 @@ static void monocle_on_client_state(output_t *m, desktop_t *d, node_t *n, client
 	FOR_EACH_LEAF(node, d->root)
 		client_set_visible(node->client, node == reveal);
 
-	if (m != NULL && reveal != NULL && reveal->client != NULL && reveal->client->toplevel != NULL &&
-		reveal->client->toplevel->configured)
+	if (m != NULL && reveal != NULL && reveal->client != NULL && reveal->client->view != NULL &&
+		reveal->client->view->configured)
 		arrange(m, d, true);
 }
 
@@ -115,7 +115,7 @@ static void scroller_on_focus(output_t *m, desktop_t *d, node_t *n) {
 		}
 	}
 
-	if (n != NULL && n->client->toplevel && n->client->toplevel->configured) {
+	if (n != NULL && n->client && n->client->view && n->client->view->configured) {
 		wlr_log(WLR_DEBUG, "scroller_on_focus: triggering arrange");
 		arrange(m, d, true);
 	} else {

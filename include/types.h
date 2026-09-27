@@ -14,10 +14,12 @@ struct node_t;
 struct desktop_t;
 struct client_t;
 struct output_t;
-struct toplevel_t;
-struct xwayland_toplevel_t;
 struct tab_bar_t;
 struct scroller_state_t;
+
+typedef struct view_t view_t;
+typedef struct xdg_toplevel_t xdg_toplevel_t;
+typedef struct xwayland_toplevel_t xwayland_toplevel_t;
 
 // enums
 typedef enum {
@@ -147,7 +149,6 @@ typedef struct {
 } client_flags_t;
 
 typedef enum {
-	VIEW_NONE,
 	VIEW_XDG,
 	VIEW_XWAYLAND,
 } view_type_t;
@@ -159,9 +160,7 @@ typedef struct client_t {
 	stack_layer_t layer, last_layer;
 	struct wlr_box floating_rectangle, tiled_rectangle, committed_tiled_rectangle, arranged_rectangle;
 	struct wlr_box pre_maximize_rectangle;
-	view_type_t type;
-	struct toplevel_t *toplevel;
-	struct xwayland_toplevel_t *xwayland_view;
+	struct view_t *view;
 
 	struct {
 		struct wl_listener activate;
@@ -169,8 +168,6 @@ typedef struct client_t {
 		struct wl_listener close;
 		struct wl_listener destroy;
 	} foreign;
-
-	struct wl_listener outputs_update;
 
 	// Master-stack layout properties
 	uint64_t master_stack_order;

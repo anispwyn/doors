@@ -3,7 +3,6 @@
 #include "layer.h"
 #include "once.h"
 #include "server.h"
-#include "toplevel.h"
 #include "touch.h"
 #include "tree.h"
 #include <wayland-util.h>
@@ -35,7 +34,7 @@ static void handle_touch_down(struct wl_listener *listener, void *data) {
 
 			struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
 			if (xdg_surface != NULL && xdg_surface->role != WLR_XDG_SURFACE_ROLE_POPUP) {
-				toplevel_t *toplevel = type;
+				view_t *toplevel = type;
 				if (toplevel && toplevel->node) {
 					if (output)
 						focus_node(output, toplevel->node->desktop, toplevel->node);
@@ -48,10 +47,10 @@ static void handle_touch_down(struct wl_listener *listener, void *data) {
 				struct wlr_xwayland_surface *xwayland_surface =
 					wlr_xwayland_surface_try_from_wlr_surface(surface);
 				if (xwayland_surface != NULL) {
-					xwayland_toplevel_t *xwayland_view = type;
-					if (xwayland_view && xwayland_view->node) {
+					view_t *view = type;
+					if (view && view->node) {
 						if (output)
-							focus_node(output, xwayland_view->node->desktop, xwayland_view->node);
+							focus_node(output, view->node->desktop, view->node);
 					}
 				}
 			}

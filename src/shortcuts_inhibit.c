@@ -1,7 +1,8 @@
 #include "once.h"
 #include "rule.h"
 #include "server.h"
-#include "toplevel.h"
+#include "types.h"
+#include "xdg_toplevel.h"
 #include <wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/xwayland.h>
@@ -17,7 +18,7 @@ void handle_keyboard_shortcuts_inhibit_new_inhibitor(struct wl_listener *listene
 	if (xdg_surface && xdg_surface->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL) {
 		app_id = xdg_surface->toplevel->app_id;
 		title = xdg_surface->toplevel->title;
-		toplevel_t *tl = xdg_surface->toplevel->base->data;
+		xdg_toplevel_t *tl = xdg_surface->toplevel->base->data;
 		if (tl)
 			tag = tl->tag;
 	} else {

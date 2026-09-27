@@ -14,11 +14,11 @@
 #include "seat.h"
 #include "server.h"
 #include "tabs.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
 #include "workspace.h"
+#include "xdg_toplevel.h"
 #include "xwayland.h"
 #include <stdlib.h>
 #include <unistd.h>
@@ -324,25 +324,16 @@ void toggle_block_out_from_screenshare(void) {
 	wlr_log(WLR_DEBUG, "toggle_block_out: %s -> %d", n->client->app_id,
 		n->client->flags.block_out_from_screenshare);
 
-	if (n->client->toplevel) {
-		toplevel_t *tl = n->client->toplevel;
-
-		if (n->client->flags.block_out_from_screenshare && tl->image_capture_surface) {
-			wlr_scene_node_destroy(&tl->image_capture_surface->buffer->node);
-			tl->image_capture_surface = NULL;
-		} else if (!n->client->flags.block_out_from_screenshare && !tl->image_capture_surface) {
-			tl->image_capture_surface = wlr_scene_surface_create(&tl->image_capture->tree,
-				tl->xdg_toplevel->base->surface);
-		}
-	} else if (n->client->xwayland_view) {
-		xwayland_toplevel_t *xw = n->client->xwayland_view;
-
-		if (n->client->flags.block_out_from_screenshare && xw->image_capture_surface) {
-			wlr_scene_node_destroy(&xw->image_capture_surface->buffer->node);
-			xw->image_capture_surface = NULL;
-		} else if (!n->client->flags.block_out_from_screenshare && !xw->image_capture_surface) {
-			xw->image_capture_surface = wlr_scene_surface_create(&xw->image_capture->tree,
-				xw->xwayland_surface->surface);
+	// toggle the image capture surface, which is what the compositor shows to
+	// screen recorders instead of the real surface
+	view_t *view = n->client->view;
+	struct wlr_surface *wlr_surface = view_wlr_surface(view);
+	if (view != NULL && wlr_surface != NULL) {
+		if (n->client->flags.block_out_from_screenshare && view->image_capture_surface) {
+			wlr_scene_node_destroy(&view->image_capture_surface->buffer->node);
+			view->image_capture_surface = NULL;
+		} else if (!n->client->flags.block_out_from_screenshare && !view->image_capture_surface) {
+			view->image_capture_surface = wlr_scene_surface_create(&view->image_capture->tree, wlr_surface);
 		}
 	}
 
@@ -471,10 +462,11 @@ void toggle_pseudo_tiled(void) {
 	} else {
 		struct wlr_box base_rect = {0};
 
-		if (n->client->toplevel && n->client->toplevel->xdg_toplevel)
-			base_rect = n->client->toplevel->xdg_toplevel->base->geometry;
-		else if (n->client->xwayland_view)
-			base_rect = n->client->xwayland_view->geometry;
+		xdg_toplevel_t *xdg = view_to_xdg(n->client ? n->client->view : NULL);
+		if (xdg && xdg->xdg_toplevel)
+			base_rect = xdg->xdg_toplevel->base->geometry;
+		else if (n->client->view)
+			base_rect = n->client->view->geometry;
 		else
 			base_rect = n->rectangle;
 

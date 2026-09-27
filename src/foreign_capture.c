@@ -1,6 +1,5 @@
 #include "once.h"
 #include "server.h"
-#include "toplevel.h"
 #include <wlr/types/wlr_ext_image_capture_source_v1.h>
 #include <wlr/types/wlr_scene.h>
 
@@ -12,19 +11,13 @@ static void handle_new_toplevel_capture_request(struct wl_listener *listener, vo
 	struct wlr_ext_image_capture_source_v1 **image_capture_source_ptr = NULL;
 	struct wlr_scene *image_capture = NULL;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (tl == handle_data) {
 			image_capture_source_ptr = &tl->image_capture_source;
 			image_capture = tl->image_capture;
 			break;
 		}
-	}
-
-	if (image_capture_source_ptr == NULL) {
-		xwayland_toplevel_t *xwayland_view = handle_data;
-		image_capture_source_ptr = &xwayland_view->image_capture_source;
-		image_capture = xwayland_view->image_capture;
 	}
 
 	if (image_capture_source_ptr == NULL || image_capture == NULL) {

@@ -3,7 +3,6 @@
 #include "ipc_helpers.h"
 #include "output.h"
 #include "server.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "workspace.h"
 #include <stdio.h>
@@ -64,20 +63,11 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 				send_failure(client_fd, "query -n: invalid node id\n");
 				return;
 			}
-			struct toplevel_t *toplevel;
-			wl_list_for_each(toplevel, &server.toplevels, link) {
+			view_t *toplevel;
+			wl_list_for_each(toplevel, &server.views, link) {
 				if (toplevel->node && toplevel->node->id == (uint32_t)node_id) {
 					filter_node = toplevel->node;
 					break;
-				}
-			}
-			if (!filter_node) {
-				struct xwayland_toplevel_t *xwayland_view;
-				wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-					if (xwayland_view->node && xwayland_view->node->id == (uint32_t)node_id) {
-						filter_node = xwayland_view->node;
-						break;
-					}
 				}
 			}
 			if (!filter_node) {
@@ -120,8 +110,8 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 				break;
 		}
 
-		toplevel_t *toplevel;
-		wl_list_for_each(toplevel, &server.toplevels, link) {
+		view_t *toplevel;
+		wl_list_for_each(toplevel, &server.views, link) {
 			bool include = true;
 			if (filter_node && toplevel->node != filter_node)
 				include = false;
@@ -133,29 +123,11 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 
 			if (include)
 				offset += snprintf(buf + offset, sizeof(buf) - offset,
-					"  \"toplevel\": {\"app_id\": \"%s\", \"title\": \"%s\", \"identifier\": \"%s\"}\n",
+					"  \"%s\": {\"app_id\": \"%s\", \"title\": \"%s\", \"identifier\": \"%s\"}\n",
+					toplevel->type == VIEW_XWAYLAND ? "xwayland" : "toplevel",
 					toplevel->node && toplevel->node->client ? toplevel->node->client->app_id : "?",
 					toplevel->node && toplevel->node->client ? toplevel->node->client->title : "?",
 					toplevel->foreign_identifier ? toplevel->foreign_identifier : "?");
-		}
-
-		struct xwayland_toplevel_t *xwayland_view;
-		wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-			bool include = true;
-			if (filter_node && xwayland_view->node != filter_node)
-				include = false;
-			if (filter_desk && xwayland_view->node && xwayland_view->node->output &&
-				xwayland_view->node->output->desk != filter_desk)
-				include = false;
-			if (filter_mon && xwayland_view->node && xwayland_view->node->output != filter_mon)
-				include = false;
-
-			if (include)
-				offset += snprintf(buf + offset, sizeof(buf) - offset,
-					"  \"xwayland\": {\"app_id\": \"%s\", \"title\": \"%s\", \"identifier\": \"%s\"}\n",
-					xwayland_view->node && xwayland_view->node->client ? xwayland_view->node->client->app_id : "?",
-					xwayland_view->node && xwayland_view->node->client ? xwayland_view->node->client->title : "?",
-					xwayland_view->foreign_identifier ? xwayland_view->foreign_identifier : "?");
 		}
 
 		offset += snprintf(buf + offset, sizeof(buf) - offset, "}\n");
@@ -188,8 +160,8 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 		}
 		send_success(client_fd, buf);
 	} else if (streq("-N", *args) || streq("--nodes", *args)) {
-		toplevel_t *toplevel;
-		wl_list_for_each(toplevel, &server.toplevels, link) {
+		view_t *toplevel;
+		wl_list_for_each(toplevel, &server.views, link) {
 			bool include = true;
 			if (filter_node && toplevel->node != filter_node)
 				include = false;
@@ -215,34 +187,6 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 			}
 		}
 
-		struct xwayland_toplevel_t *xwayland_view;
-		wl_list_for_each(xwayland_view, &server.xwayland.views, link) {
-			bool include = true;
-			if (filter_node && xwayland_view->node != filter_node)
-				include = false;
-			if (filter_desk && xwayland_view->node && xwayland_view->node->output &&
-				xwayland_view->node->output->desk != filter_desk)
-				include = false;
-			if (filter_mon && xwayland_view->node && xwayland_view->node->output != filter_mon)
-				include = false;
-
-			if (include) {
-				if (use_names) {
-					const char *name = "?";
-					if (xwayland_view->node && xwayland_view->node->client &&
-						xwayland_view->node->client->title[0])
-						name = xwayland_view->node->client->title;
-					else if (xwayland_view->node && xwayland_view->node->client &&
-						xwayland_view->node->client->app_id[0])
-						name = xwayland_view->node->client->app_id;
-					offset += snprintf(buf + offset, sizeof(buf) - offset, "%s\n", name);
-				} else {
-					offset += snprintf(buf + offset, sizeof(buf) - offset, "%u %s\n",
-						xwayland_view->node ? xwayland_view->node->id : 0,
-						xwayland_view->foreign_identifier ? xwayland_view->foreign_identifier : "?");
-				}
-			}
-		}
 		send_success(client_fd, buf);
 	} else if (streq("-f", *args) || streq("--focused", *args)) {
 		output_t *m = server.focused_output;
@@ -256,21 +200,12 @@ void ipc_cmd_query(char **args, int num, int client_fd) {
 			return;
 		}
 		char *foreign_id = "?";
-		toplevel_t *toplevel;
-		wl_list_for_each(toplevel, &server.toplevels, link)
+		view_t *toplevel;
+		wl_list_for_each(toplevel, &server.views, link)
 			if (toplevel->node == n) {
 				foreign_id = toplevel->foreign_identifier ? toplevel->foreign_identifier : "?";
 			break;
 		}
-		if (foreign_id[0] == '?') {
-			struct xwayland_toplevel_t *xwayland_view;
-			wl_list_for_each(xwayland_view, &server.xwayland.views, link)
-				if (xwayland_view->node == n) {
-					foreign_id = xwayland_view->foreign_identifier ? xwayland_view->foreign_identifier : "?";
-				break;
-			}
-		}
-
 		if (use_names) {
 			offset += snprintf(buf + offset, sizeof(buf) - offset,
 				"{\"monitor\": \"%s\", \"desktop\": \"%s\", \"node\": \"%s\", \"title\": \"%s\", \"type\": %d, "

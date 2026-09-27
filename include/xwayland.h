@@ -1,6 +1,6 @@
 #pragma once
 
-#include "surface.h"
+#include "view.h"
 
 #include <wayland-server-core.h>
 #include <wlr/util/box.h>
@@ -28,36 +28,12 @@ typedef struct xwayland_t {
 	struct wlr_xwayland *wlr_xwayland;
 	struct wlr_xcursor_manager *xcursor_manager;
 	xcb_atom_t atoms[ATOM_LAST];
-	struct wl_list views;
 } xwayland_t;
 
 typedef struct xwayland_toplevel_t {
-	node_t *node;
-	client_t *client;
+	view_t view;
+
 	struct wlr_xwayland_surface *xwayland_surface;
-	struct wlr_scene_tree *scene_tree;
-	struct wlr_scene_tree *content_tree;
-	struct wlr_scene_buffer *output_handler;
-
-	struct wlr_scene_tree *border_tree;
-	struct wlr_scene_rect *border_rects[4];
-
-	surface_blur_t *blur;
-	surface_rounded_t *rounded;
-	surface_shadow_t *shadow;
-
-	bool mapped;
-	struct wlr_box geometry;
-
-	struct wlr_ext_foreign_toplevel_handle_v1 *ext_foreign_toplevel;
-	struct wlr_foreign_toplevel_handle_v1 *foreign_toplevel;
-	char *foreign_identifier;
-
-	struct wlr_ext_image_capture_source_v1 *image_capture_source;
-	struct wlr_scene_surface *image_capture_surface;
-	struct wlr_scene *image_capture;
-	struct wlr_scene_tree *image_capture_tree;
-	void *capture_renderer;
 
 	struct wl_listener map;
 	struct wl_listener unmap;
@@ -78,8 +54,6 @@ typedef struct xwayland_toplevel_t {
 	struct wl_listener associate;
 	struct wl_listener dissociate;
 	struct wl_listener override_redirect;
-
-	struct wl_list link;
 } xwayland_toplevel_t;
 
 typedef struct xwayland_unmanaged_t {
@@ -97,8 +71,7 @@ typedef struct xwayland_unmanaged_t {
 	struct wl_listener override_redirect;
 } xwayland_unmanaged_t;
 
-void xwayland_view_close(xwayland_toplevel_t *xwayland_view);
-void xwayland_view_set_activated(xwayland_toplevel_t *xwayland_view, bool activated);
+void xwayland_toplevel_close(xwayland_toplevel_t *xwayland_toplevel);
 
 void xwayland_init(void);
 void xwayland_fini(void);

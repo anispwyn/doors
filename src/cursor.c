@@ -15,10 +15,10 @@
 #include "tablet.h"
 #include "tabs.h"
 #include "tiling_drag.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
+#include "xdg_toplevel.h"
 #include "xwayland.h"
 #include <linux/input-event-codes.h>
 #include <math.h>
@@ -68,8 +68,7 @@ static void reset_cursor_mode(void) {
 	}
 
 	server.cursor_mode = CURSOR_PASSTHROUGH;
-	server.grabbed_toplevel = NULL;
-	server.grabbed_xwayland_view = NULL;
+	server.grabbed_view = NULL;
 	server.tiled_resize_node = NULL;
 	server.tiled_resize_parent_vertical = NULL;
 	server.tiled_resize_parent_horizontal = NULL;
@@ -172,16 +171,17 @@ static void apply_leaf_positions(desktop_t *d) {
 				effects_dirty_corner_masks(n->output);
 		}
 
-		if (n->client->toplevel) {
-			toplevel_t *tl = n->client->toplevel;
+		view_t *tl = n->client ? n->client->view : NULL;
+		if (tl && tl->type == VIEW_XDG) {
 			if (r.width != (int)tl->last_requested.width || r.height != (int)tl->last_requested.height) {
-				wlr_xdg_toplevel_set_size(tl->xdg_toplevel, r.width, r.height);
+				wlr_xdg_toplevel_set_size(view_to_xdg(tl)->xdg_toplevel, r.width, r.height);
 				tl->last_requested.width = r.width;
 				tl->last_requested.height = r.height;
 			}
-		} else if (n->client->xwayland_view)
-			wlr_xwayland_surface_configure(n->client->xwayland_view->xwayland_surface, r.x, r.y, r.width,
+		} else if (tl && tl->type == VIEW_XWAYLAND) {
+			wlr_xwayland_surface_configure(view_to_xwayland(tl)->xwayland_surface, r.x, r.y, r.width,
 				r.height);
+		}
 
 		unsigned int bw = effective_border_width(d);
 		if (bw != 0) {
@@ -197,9 +197,8 @@ static void apply_leaf_positions(desktop_t *d) {
 				surface_rounded_t *rounded = client_get_rounded(n->client);
 				if (rounded) {
 					rounded_mark_border_size(rounded, r.width, r.height, (int)bw,
-						n->client->toplevel && n->client->toplevel->node &&
-						n->client->toplevel->node->output ? n->client->toplevel->node->output->wlr_output->scale :
-						1.0f);
+						n->client->view && n->client->view->node &&
+						n->client->view->node->output ? n->client->view->node->output->wlr_output->scale : 1.0f);
 				}
 			}
 		}
@@ -319,46 +318,30 @@ static void process_cursor_tiled_resize(void) {
 }
 
 static void process_cursor_move(void) {
-	toplevel_t *toplevel = server.grabbed_toplevel;
-	xwayland_toplevel_t *xwayland_view = server.grabbed_xwayland_view;
+	view_t *view = server.grabbed_view;
 
-	if (xwayland_view && xwayland_view->node && xwayland_view->node->client &&
-			xwayland_view->node->client->state == STATE_FLOATING) {
-		double x = server.cursor->x - server.grab_x;
-		double y = server.cursor->y - server.grab_y;
-
-		xwayland_view->node->client->floating_rectangle.x = (int)x;
-		xwayland_view->node->client->floating_rectangle.y = (int)y;
-
-		if (xwayland_view->scene_tree) {
-			struct wlr_scene_node *stn = &xwayland_view->scene_tree->node;
-			if (stn->x != x || stn->y != y) {
-				wlr_scene_node_set_position(stn, x, y);
-				if (xwayland_view->node->output)
-					effects_dirty_corner_masks(xwayland_view->node->output);
-			}
-		}
-
-		wlr_xwayland_surface_configure(xwayland_view->xwayland_surface, (int)x, (int)y,
-			xwayland_view->xwayland_surface->width, xwayland_view->xwayland_surface->height);
-		return;
-	}
-
-	if (!toplevel || !toplevel->node || !toplevel->node->client ||
-		toplevel->node->client->state != STATE_FLOATING)
+	if (!view || !view->node || !view->node->client || view->node->client->state != STATE_FLOATING)
 		return;
 
 	double x = server.cursor->x - server.grab_x;
 	double y = server.cursor->y - server.grab_y;
 
-	toplevel->node->client->floating_rectangle.x = (int)x;
-	toplevel->node->client->floating_rectangle.y = (int)y;
+	view->node->client->floating_rectangle.x = (int)x;
+	view->node->client->floating_rectangle.y = (int)y;
 
-	struct wlr_scene_node *stn = &toplevel->scene_tree->node;
-	if (stn->x != x || stn->y != y) {
-		wlr_scene_node_set_position(stn, x, y);
-		if (toplevel->node->output)
-			effects_dirty_corner_masks(toplevel->node->output);
+	if (view->scene_tree) {
+		struct wlr_scene_node *stn = &view->scene_tree->node;
+		if (stn->x != x || stn->y != y) {
+			wlr_scene_node_set_position(stn, x, y);
+			if (view->node->output)
+				effects_dirty_corner_masks(view->node->output);
+		}
+	}
+
+	xwayland_toplevel_t *xv = view_to_xwayland(view);
+	if (xv) {
+		wlr_xwayland_surface_configure(xv->xwayland_surface, (int)x, (int)y, xv->xwayland_surface->width,
+			xv->xwayland_surface->height);
 	}
 }
 
@@ -369,8 +352,7 @@ static void process_cursor_resize(void) {
 		return;
 	}
 
-	toplevel_t *toplevel = server.grabbed_toplevel;
-	xwayland_toplevel_t *xwayland_view = server.grabbed_xwayland_view;
+	view_t *view = server.grabbed_view;
 
 	double border_x = server.cursor->x - server.grab_x;
 	double border_y = server.cursor->y - server.grab_y;
@@ -407,30 +389,27 @@ static void process_cursor_resize(void) {
 	if (new_height < MIN_HEIGHT)
 		new_height = MIN_HEIGHT;
 
-	if (xwayland_view && xwayland_view->node && xwayland_view->node->client) {
-		client_t *c = xwayland_view->node->client;
+	if (view && view->type == VIEW_XWAYLAND && view->node && view->node->client) {
+		client_t *c = view->node->client;
 		c->floating_rectangle.x = new_left;
 		c->floating_rectangle.y = new_top;
 		c->floating_rectangle.width = new_width;
 		c->floating_rectangle.height = new_height;
 
-		if (xwayland_view->scene_tree) {
-			struct wlr_scene_node *stn = &xwayland_view->scene_tree->node;
+		if (view->scene_tree) {
+			struct wlr_scene_node *stn = &view->scene_tree->node;
 			if (stn->x != new_left || stn->y != new_top) {
 				wlr_scene_node_set_position(stn, new_left, new_top);
-				if (xwayland_view->node->output)
-					effects_dirty_corner_masks(xwayland_view->node->output);
+				if (view->node->output)
+					effects_dirty_corner_masks(view->node->output);
 			}
 		}
 
-		wlr_xwayland_surface_configure(xwayland_view->xwayland_surface, new_left, new_top, new_width,
-			new_height);
-
-		if (!xwayland_view->node || !xwayland_view->node->client)
-			return;
+		wlr_xwayland_surface_configure(view_to_xwayland(view)->xwayland_surface, new_left, new_top,
+			new_width, new_height);
 
 		// update borders
-		unsigned int bw = effective_border_width(xwayland_view->node->desktop);
+		unsigned int bw = effective_border_width(view->node->desktop);
 		if (bw != 0) {
 			const struct wlr_box geo = {
 				0,
@@ -438,37 +417,37 @@ static void process_cursor_resize(void) {
 				new_width,
 				new_height
 			};
-			update_borders(xwayland_view->border_tree, xwayland_view->border_rects, geo, bw);
+			update_borders(view->border_tree, view->border_rects, geo, bw);
 			update_border_colors(c);
 		}
 
 		return;
 	}
 
-	if (!toplevel || !toplevel->node || !toplevel->node->client)
+	if (!view || !view->node || !view->node->client)
 		return;
 
-	client_t *c = toplevel->node->client;
+	client_t *c = view->node->client;
 	c->floating_rectangle.x = new_left;
 	c->floating_rectangle.y = new_top;
 	c->floating_rectangle.width = new_width;
 	c->floating_rectangle.height = new_height;
 
-	struct wlr_scene_node *stn = &toplevel->scene_tree->node;
+	struct wlr_scene_node *stn = &view->scene_tree->node;
 	if (stn->x != new_left || stn->y != new_top) {
 		wlr_scene_node_set_position(stn, new_left, new_top);
-		if (toplevel->node->output)
-			effects_dirty_corner_masks(toplevel->node->output);
+		if (view->node->output)
+			effects_dirty_corner_masks(view->node->output);
 	}
-	if ((int)toplevel->last_requested.width != new_width ||
-			(int)toplevel->last_requested.height != new_height) {
-		wlr_xdg_toplevel_set_size(toplevel->xdg_toplevel, new_width, new_height);
-		toplevel->last_requested.width = new_width;
-		toplevel->last_requested.height = new_height;
+	if ((int)view->last_requested.width != new_width ||
+			(int)view->last_requested.height != new_height) {
+		wlr_xdg_toplevel_set_size(view_to_xdg(view)->xdg_toplevel, new_width, new_height);
+		view->last_requested.width = new_width;
+		view->last_requested.height = new_height;
 	}
 
 	// update borders
-	unsigned int bw = effective_border_width(toplevel->node->desktop);
+	unsigned int bw = effective_border_width(view->node->desktop);
 	if (bw != 0) {
 		const struct wlr_box geo = {
 			0,
@@ -476,11 +455,11 @@ static void process_cursor_resize(void) {
 			new_width,
 			new_height
 		};
-		update_borders(toplevel->border_tree, toplevel->border_rects, geo, bw);
+		update_borders(view->border_tree, view->border_rects, geo, bw);
 		update_border_colors(c);
-		if (c->border_radius > 0.0f && toplevel->rounded) {
-			rounded_mark_border_size(toplevel->rounded, new_width, new_height, (int)bw,
-				toplevel->node && toplevel->node->output ? toplevel->node->output->wlr_output->scale : 1.0f);
+		if (c->border_radius > 0.0f && view->rounded) {
+			rounded_mark_border_size(view->rounded, new_width, new_height, (int)bw,
+				view->node && view->node->output ? view->node->output->wlr_output->scale : 1.0f);
 		}
 	}
 }
@@ -580,6 +559,7 @@ static void process_cursor_motion(uint32_t time, double dx, double dy, double dx
 	struct wlr_seat *seat = server.seat;
 	struct wlr_surface *surface = NULL;
 	void *type = desktop_type_at(server.cursor->x, server.cursor->y, &surface, &sx, &sy);
+	view_t *hover = type ? view_from_wlr_surface(surface) : NULL;
 	if (type == NULL && !seat->drag)
 		wlr_cursor_set_xcursor(server.cursor, server.cursor_mgr, "default");
 
@@ -596,18 +576,9 @@ static void process_cursor_motion(uint32_t time, double dx, double dy, double dx
 			node_t *node = NULL;
 
 			struct wlr_xdg_surface *xdg_surface = wlr_xdg_surface_try_from_wlr_surface(surface);
-			if (xdg_surface != NULL && xdg_surface->role != WLR_XDG_SURFACE_ROLE_POPUP) {
-				toplevel_t *toplevel = type;
-				if (toplevel && toplevel->node)
-					node = toplevel->node;
-			} else {
-				struct wlr_xwayland_surface *xwayland_surface =
-					wlr_xwayland_surface_try_from_wlr_surface(surface);
-				if (xwayland_surface != NULL) {
-					xwayland_toplevel_t *xwayland_view = type;
-					if (xwayland_view && xwayland_view->node)
-						node = xwayland_view->node;
-				}
+			bool is_popup = xdg_surface != NULL && xdg_surface->role == WLR_XDG_SURFACE_ROLE_POPUP;
+			if (!is_popup && hover && hover->node) {
+				node = hover->node;
 			}
 
 			if (node && node->output && node->desktop && node->desktop == node->output->desk)
@@ -625,8 +596,8 @@ static void process_cursor_motion(uint32_t time, double dx, double dy, double dx
 		output_schedule_frame(m);
 }
 
-void begin_interactive(toplevel_t *toplevel, enum cursor_mode mode, uint32_t edges) {
-	server.grabbed_toplevel = toplevel;
+void view_begin_interactive(view_t *toplevel, enum cursor_mode mode, uint32_t edges) {
+	server.grabbed_view = toplevel;
 	server.cursor_mode = mode;
 
 	// clear tiled resize state
@@ -824,6 +795,7 @@ void cursor_button(struct wl_listener *listener, void *data) {
 		double sx, sy;
 		struct wlr_surface *surface = NULL;
 		void *type = desktop_type_at(server.cursor->x, server.cursor->y, &surface, &sx, &sy);
+		view_t *hover = type ? view_from_wlr_surface(surface) : NULL;
 		if (type == NULL)
 			return;
 
@@ -834,30 +806,17 @@ void cursor_button(struct wl_listener *listener, void *data) {
 			layer_surface_t *layer = type;
 			if (layer)
 				focus_layer_surface(layer);
-		} else {
-			struct wlr_xwayland_surface *xwayland_surface =
-				wlr_xwayland_surface_try_from_wlr_surface(surface);
-
-			if (xwayland_surface != NULL) {
-				xwayland_toplevel_t *xwayland_view = type;
-				if (xwayland_view && xwayland_view->node) {
-					output_t *m = xwayland_view->node->output;
-					desktop_t *d = xwayland_view->node->desktop;
-					if (d && d != (m ? m->desk : NULL))
-						d->focus = xwayland_view->node;
-					server.focus_from_click = true;
-					focus_node(m, d, xwayland_view->node);
-				}
-			} else {
-				toplevel_t *toplevel = type;
-				if (toplevel && toplevel->node) {
-					output_t *m = toplevel->node->output;
-					desktop_t *d = toplevel->node->desktop;
-					if (!d)
-						d = m ? m->desk : NULL;
-					focus_node(m, d, toplevel->node);
-				}
+		} else if (hover && hover->node) {
+			output_t *m = hover->node->output;
+			desktop_t *d = hover->node->desktop;
+			if (hover->type == VIEW_XWAYLAND) {
+				if (d && d != (m ? m->desk : NULL))
+					d->focus = hover->node;
+				server.focus_from_click = true;
+			} else if (!d) {
+				d = m ? m->desk : NULL;
 			}
+			focus_node(m, d, hover->node);
 		}
 
 		// add to cursor buttons
@@ -872,8 +831,8 @@ void cursor_button(struct wl_listener *listener, void *data) {
 				keybind_t *matched_kb = handle_keybind_raw(modifiers, keycode, true);
 
 				if (matched_kb) {
-					toplevel_t *toplevel = NULL;
-					if (type && ((toplevel_t *)type)->node)
+					view_t *toplevel = NULL;
+					if (type && ((view_t *)type)->node)
 						toplevel = type;
 
 					if (toplevel && toplevel->node && toplevel->node->client) {
@@ -882,7 +841,7 @@ void cursor_button(struct wl_listener *listener, void *data) {
 								tiling_drag_begin(toplevel->node);
 						} else if (matched_kb->action == BIND_INTERACTIVE_MOVE) {
 							if (toplevel->node->client->state == STATE_FLOATING)
-								begin_interactive(toplevel, CURSOR_MOVE, 0);
+								view_begin_interactive(toplevel, CURSOR_MOVE, 0);
 							else if (IS_TILED(toplevel->node->client))
 								tiling_drag_begin(toplevel->node);
 						} else if (matched_kb->action == BIND_INTERACTIVE_RESIZE) {
@@ -907,7 +866,7 @@ void cursor_button(struct wl_listener *listener, void *data) {
 							}
 
 							if (edges != 0)
-								begin_interactive(toplevel, CURSOR_RESIZE, edges);
+								view_begin_interactive(toplevel, CURSOR_RESIZE, edges);
 						}
 					}
 				}

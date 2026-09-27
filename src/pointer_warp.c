@@ -1,7 +1,6 @@
 #include "cursor.h"
 #include "once.h"
 #include "server.h"
-#include "toplevel.h"
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer_warp_v1.h>
 #include <wlr/util/log.h>
@@ -30,7 +29,7 @@ static void handle_pointer_warp(struct wl_listener *listener, void *data) {
 		return;
 	}
 
-	toplevel_t *toplevel = event->surface->data;
+	view_t *toplevel = event->surface->data;
 	if (toplevel == NULL)
 		return;
 

@@ -1,5 +1,5 @@
 #include "animation.h"
-#include "copy_capture.h"
+#include "cursor.h"
 #include "effects_backend.h"
 #include "input_method.h"
 #include "ipc.h"
@@ -14,7 +14,6 @@
 #include "server.h"
 #include "surface.h"
 #include "tabs.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "types.h"
 #include "workspace.h"
@@ -49,26 +48,23 @@ static const char *atom_map[ATOM_LAST] = {
 	[NET_WM_STATE_MODAL] = "_NET_WM_STATE_MODAL",
 };
 
-static void xwayland_view_destroy(xwayland_toplevel_t *xwayland_view);
-static xwayland_toplevel_t *create_xwayland_view(struct wlr_xwayland_surface *xsurface);
-static xwayland_unmanaged_t *create_unmanaged(struct wlr_xwayland_surface *xsurface);
-static void begin_xwayland_interactive(struct xwayland_toplevel_t *xwayland_view,
-	enum cursor_mode mode, uint32_t edges);
-
+static void xwayland_toplevel_destroy(xwayland_toplevel_t *xwayland_toplevel);
+static xwayland_toplevel_t *xwayland_toplevel_create(struct wlr_xwayland_surface *xsurface);
+static xwayland_unmanaged_t *xwayland_unmanaged_create(struct wlr_xwayland_surface *xsurface);
 static void xwayland_relative_to_absolute(struct wlr_xwayland_surface *parent, int child_x,
 		int child_y, int *abs_x, int *abs_y) {
 	if (parent && !parent->override_redirect && parent->data) {
-		xwayland_toplevel_t *parent_view = parent->data;
-		if (parent_view->xwayland_surface && parent_view->node) {
-			int x_offset = child_x - parent_view->xwayland_surface->x;
-			int y_offset = child_y - parent_view->xwayland_surface->y;
-			node_t *parent_node = parent_view->node;
+		xwayland_toplevel_t *parent_toplevel = parent->data;
+		if (parent_toplevel->xwayland_surface && parent_toplevel->view.node) {
+			int x_offset = child_x - parent_toplevel->xwayland_surface->x;
+			int y_offset = child_y - parent_toplevel->xwayland_surface->y;
+			node_t *parent_node = parent_toplevel->view.node;
 			if (parent_node->client && parent_node->client->state == STATE_FLOATING) {
 				*abs_x = parent_node->client->floating_rectangle.x + x_offset;
 				*abs_y = parent_node->client->floating_rectangle.y + y_offset;
-			} else if (parent_view->node) {
-				*abs_x = parent_view->node->rectangle.x + x_offset;
-				*abs_y = parent_view->node->rectangle.y + y_offset;
+			} else {
+				*abs_x = parent_node->rectangle.x + x_offset;
+				*abs_y = parent_node->rectangle.y + y_offset;
 			}
 			return;
 		}
@@ -127,7 +123,8 @@ static void unmanaged_handle_map(struct wl_listener *listener, void *data) {
 			// if parent is a managed window, use its X11 coordinates
 			xwayland_relative_to_absolute(xsurface->parent, xsurface->x, xsurface->y, &abs_x, &abs_y);
 		} else {
-			xwayland_toplevel_t *focused_view = server.last_focused_xwayland_view;
+			view_t *focused_view = server.last_focused_xwayland_view;
+			bool resolved_from_node = false;
 
 			if (!focused_view) {
 				wlr_log(WLR_INFO, "last_focused is NULL, searching for any mapped xwayland window");
@@ -138,8 +135,8 @@ static void unmanaged_handle_map(struct wl_listener *listener, void *data) {
 					desktop_t *d = mon->desk;
 					node_t *n = d->root;
 
-					while (n && !focused_view) {
-						if (n->client && n->client->toplevel == NULL) {
+					while (n && !resolved_from_node) {
+						if (n->client && n->client->view && n->client->view->type == VIEW_XWAYLAND) {
 							if (n->rectangle.x > 0 || n->rectangle.y > 0 || n->client->floating_rectangle.x > 0 ||
 									n->client->floating_rectangle.y > 0) {
 								if (n->client->state == STATE_FLOATING) {
@@ -151,7 +148,7 @@ static void unmanaged_handle_map(struct wl_listener *listener, void *data) {
 								}
 
 								wlr_log(WLR_INFO, "Using found node position, final: (%d,%d)", abs_x, abs_y);
-								focused_view = (xwayland_toplevel_t *)1;
+								resolved_from_node = true;
 								break;
 							}
 						}
@@ -176,10 +173,9 @@ static void unmanaged_handle_map(struct wl_listener *listener, void *data) {
 				}
 			}
 
-			if (focused_view && focused_view != (xwayland_toplevel_t *)1 && focused_view->mapped &&
-					focused_view->client) {
-				xwayland_relative_to_absolute(focused_view->xwayland_surface, xsurface->x, xsurface->y, &abs_x,
-					&abs_y);
+			if (!resolved_from_node && focused_view && focused_view->mapped && focused_view->client) {
+				xwayland_relative_to_absolute(view_to_xwayland(focused_view)->xwayland_surface, xsurface->x,
+					xsurface->y, &abs_x, &abs_y);
 			}
 		}
 
@@ -279,13 +275,13 @@ static void unmanaged_handle_override_redirect(struct wl_listener *listener, voi
 	unmanaged_handle_destroy(&surface->destroy, NULL);
 	xsurface->data = NULL;
 
-	xwayland_toplevel_t *xwayland_view = create_xwayland_view(xsurface);
-	if (xwayland_view && associated) {
+	xwayland_toplevel_t *toplevel = xwayland_toplevel_create(xsurface);
+	if (toplevel && associated) {
 		// idk
 	}
 }
 
-static struct xwayland_unmanaged_t *create_unmanaged(struct wlr_xwayland_surface *xsurface) {
+static struct xwayland_unmanaged_t *xwayland_unmanaged_create(struct wlr_xwayland_surface *xsurface) {
 	xwayland_unmanaged_t *surface = calloc(1, sizeof(*surface));
 	if (surface == NULL)
 		return NULL;
@@ -308,8 +304,8 @@ static struct xwayland_unmanaged_t *create_unmanaged(struct wlr_xwayland_surface
 	return surface;
 }
 
-static bool xwayland_view_wants_floating(struct xwayland_toplevel_t *xwayland_view) {
-	struct wlr_xwayland_surface *surface = xwayland_view->xwayland_surface;
+static bool xwayland_toplevel_wants_floating(struct xwayland_toplevel_t *xwayland_toplevel) {
+	struct wlr_xwayland_surface *surface = xwayland_toplevel->xwayland_surface;
 
 	if (surface->modal)
 		return true;
@@ -335,21 +331,21 @@ static bool xwayland_view_wants_floating(struct xwayland_toplevel_t *xwayland_vi
 	return false;
 }
 
-static void xwayland_view_configure(xwayland_toplevel_t *xwayland_view, int x, int y, int width,
+static void xwayland_toplevel_configure(xwayland_toplevel_t *xwayland_toplevel, int x, int y, int width,
 		int height) {
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 	wlr_xwayland_surface_configure(xsurface, x, y, width, height);
 
-	if (xwayland_view->scene_tree && xwayland_view->client &&
-			xwayland_view->client->state == STATE_FLOATING) {
-		wlr_scene_node_set_position(&xwayland_view->scene_tree->node, x, y);
+	if (xwayland_toplevel->view.scene_tree && xwayland_toplevel->view.client &&
+			xwayland_toplevel->view.client->state == STATE_FLOATING) {
+		wlr_scene_node_set_position(&xwayland_toplevel->view.scene_tree->node, x, y);
 	}
 }
 
 // push the geometry the layout chosen by layout to an X11 client
-static void xwayland_sync_configure(xwayland_toplevel_t *xwayland_view) {
-	node_t *node = xwayland_view->node;
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+static void xwayland_sync_configure(xwayland_toplevel_t *xwayland_toplevel) {
+	node_t *node = xwayland_toplevel->view.node;
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
 	if (node == NULL || node->client == NULL || xsurface == NULL)
 		return;
@@ -367,17 +363,16 @@ static void xwayland_sync_configure(xwayland_toplevel_t *xwayland_view) {
 		return;
 
 	wlr_xwayland_surface_configure(xsurface, rect.x, rect.y, rect.width, rect.height);
-	xwayland_view->geometry.width = rect.width;
-	xwayland_view->geometry.height = rect.height;
+	xwayland_toplevel->view.geometry.width = rect.width;
+	xwayland_toplevel->view.geometry.height = rect.height;
 }
 
-static void xwayland_view_apply_disable_decorations(xwayland_toplevel_t *xwayland_view) {
-	(void)xwayland_view;
-}
+static void xwayland_view_impl_set_activated(view_t *view, bool activated) {
+	xwayland_toplevel_t *xwayland_toplevel = view_to_xwayland(view);
+	if (xwayland_toplevel == NULL)
+		return;
 
-void xwayland_view_set_activated(xwayland_toplevel_t *xwayland_view, bool activated) {
-	struct wlr_xwayland_surface *surface = xwayland_view->xwayland_surface;
-
+	struct wlr_xwayland_surface *surface = xwayland_toplevel->xwayland_surface;
 	if (!surface || !surface->surface)
 		return;
 
@@ -386,73 +381,67 @@ void xwayland_view_set_activated(xwayland_toplevel_t *xwayland_view, bool activa
 
 	wlr_xwayland_surface_activate(surface, activated);
 
-	if (activated) {
+	if (activated)
 		wlr_xwayland_surface_set_fullscreen(surface, surface->fullscreen);
-
-		// raise scene tree to top
-		if (xwayland_view->scene_tree)
-			wlr_scene_node_raise_to_top(&xwayland_view->scene_tree->node);
-
-		// notify keyboard seat
-		seat_t *s = seat_default();
-		if (s) {
-			struct wlr_seat *wlr_seat = s->wlr_seat;
-			if (wlr_seat->keyboard_state.keyboard != NULL) {
-				wlr_seat_keyboard_notify_enter(wlr_seat, surface->surface,
-					wlr_seat->keyboard_state.keyboard->keycodes, wlr_seat->keyboard_state.keyboard->num_keycodes,
-					&wlr_seat->keyboard_state.keyboard->modifiers);
-			}
-			if (s->input_method_relay)
-				input_method_relay_set_focus(s->input_method_relay, surface->surface);
-		}
-
-		// update foreign toplevel
-		if (xwayland_view->foreign_toplevel)
-			wlr_foreign_toplevel_handle_v1_set_activated(xwayland_view->foreign_toplevel, true);
-	}
 }
 
-void xwayland_view_close(xwayland_toplevel_t *xwayland_view) {
-	if (!xwayland_view || !xwayland_view->xwayland_surface)
+void xwayland_toplevel_close(xwayland_toplevel_t *xwayland_toplevel) {
+	if (!xwayland_toplevel || !xwayland_toplevel->xwayland_surface)
 		return;
 
-	struct wlr_xwayland_surface *surface = xwayland_view->xwayland_surface;
+	struct wlr_xwayland_surface *surface = xwayland_toplevel->xwayland_surface;
 	wlr_xwayland_surface_close(surface);
 }
 
+static void xwayland_view_impl_set_decorations(view_t *view) {
+	(void)view;
+}
+
+static void xwayland_view_impl_close(view_t *view) {
+	xwayland_toplevel_close(view_to_xwayland(view));
+}
+
+static const view_impl_t xwayland_view_impl = {
+	.set_activated = xwayland_view_impl_set_activated,
+	.close = xwayland_view_impl_close,
+	.set_decorations = xwayland_view_impl_set_decorations,
+};
+
 static void handle_commit(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, commit);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, commit);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 	struct wlr_surface_state *state = &xsurface->surface->current;
 
 	struct wlr_box new_geo = {0};
 	new_geo.width = state->width;
 	new_geo.height = state->height;
 
-	if (xwayland_view->geometry.width != new_geo.width ||
-			xwayland_view->geometry.height != new_geo.height) {
-		xwayland_view->geometry = new_geo;
-		if (xwayland_view->client && xwayland_view->client->state == STATE_FLOATING) {
-			xwayland_view->client->floating_rectangle.width = new_geo.width;
-			xwayland_view->client->floating_rectangle.height = new_geo.height;
+	if (xwayland_toplevel->view.geometry.width != new_geo.width ||
+			xwayland_toplevel->view.geometry.height != new_geo.height) {
+		xwayland_toplevel->view.geometry = new_geo;
+		if (xwayland_toplevel->view.client && xwayland_toplevel->view.client->state == STATE_FLOATING) {
+			xwayland_toplevel->view.client->floating_rectangle.width = new_geo.width;
+			xwayland_toplevel->view.client->floating_rectangle.height = new_geo.height;
 		}
 	}
 
 	// update opacity
-	if (xwayland_view->client && xwayland_view->scene_tree)
-		surface_set_opacity(&xwayland_view->scene_tree->node, xwayland_view->client->opacity);
+	if (xwayland_toplevel->view.client && xwayland_toplevel->view.scene_tree)
+		surface_set_opacity(&xwayland_toplevel->view.scene_tree->node,
+			xwayland_toplevel->view.client->opacity);
 
-	if (xwayland_view->node && xwayland_view->node->output)
-		output_schedule_frame(xwayland_view->node->output);
+	if (xwayland_toplevel->view.node && xwayland_toplevel->view.node->output)
+		output_schedule_frame(xwayland_toplevel->view.node->output);
 }
 
 static void handle_map(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, map);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, map);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	xwayland_view->mapped = true;
+	xwayland_toplevel->view.mapped = true;
+	xwayland_toplevel->view.configured = false;
 
 	if (!xsurface->surface) {
 		wlr_log(WLR_ERROR, "XWayland surface %u has no wlr_surface at map time", xsurface->window_id);
@@ -465,15 +454,15 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		xsurface->title ? xsurface->title : "(null)", xsurface->override_redirect,
 		xsurface->surface->mapped);
 
-	wlr_scene_subsurface_tree_create(xwayland_view->content_tree, xsurface->surface);
+	wlr_scene_subsurface_tree_create(xwayland_toplevel->view.content_tree, xsurface->surface);
 
-	wl_signal_add(&xsurface->surface->events.commit, &xwayland_view->commit);
-	xwayland_view->commit.notify = handle_commit;
+	wl_signal_add(&xsurface->surface->events.commit, &xwayland_toplevel->commit);
+	xwayland_toplevel->commit.notify = handle_commit;
 
-	bool wants_float = xwayland_view_wants_floating(xwayland_view);
+	bool wants_float = xwayland_toplevel_wants_floating(xwayland_toplevel);
 
-	xwayland_view->geometry.width = xsurface->width;
-	xwayland_view->geometry.height = xsurface->height;
+	xwayland_toplevel->view.geometry.width = xsurface->width;
+	xwayland_toplevel->view.geometry.height = xsurface->height;
 
 	output_t *mon = server.focused_output ? server.focused_output : (wl_list_empty(&mon_list) ? NULL :
 		wl_container_of(mon_list.next, mon, link));
@@ -502,11 +491,10 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	}
 
 	node->client = client;
-	client->type = VIEW_XWAYLAND;
-	client->toplevel = NULL;
-	client->xwayland_view = xwayland_view;
-	xwayland_view->client = client;
-	xwayland_view->node = node;
+
+	client->view = &xwayland_toplevel->view;
+	xwayland_toplevel->view.client = client;
+	xwayland_toplevel->view.node = node;
 	node->output = mon;
 
 	// populate constraints from xwayland size hints
@@ -535,8 +523,8 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 	if (rule && rule->has & RULE_TYPE_MANAGE && !(rule->flags & RULE_TYPE_MANAGE)) {
 		wlr_log(WLR_INFO, "XWayland window %s ignored by rule (manage=off)", app_id ? app_id : "?");
-		xwayland_view->node = NULL;
-		xwayland_view->client = NULL;
+		xwayland_toplevel->view.node = NULL;
+		xwayland_toplevel->view.client = NULL;
 		free_node(node);
 		return;
 	}
@@ -561,18 +549,20 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 	if (rule) {
 		if (rule->has & RULE_TYPE_BLUR)
-			surface_client_set_effect(xwayland_view->client, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
+			surface_client_set_effect(xwayland_toplevel->view.client, EFFECT_BLUR,
+				rule->flags & RULE_TYPE_BLUR);
 		if (rule->has & RULE_TYPE_MICA)
-			surface_client_set_effect(xwayland_view->client, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
+			surface_client_set_effect(xwayland_toplevel->view.client, EFFECT_MICA,
+				rule->flags & RULE_TYPE_MICA);
 		if (rule->has & RULE_TYPE_ACRYLIC)
-			surface_client_set_effect(xwayland_view->client, EFFECT_ACRYLIC,
+			surface_client_set_effect(xwayland_toplevel->view.client, EFFECT_ACRYLIC,
 				rule->flags & RULE_TYPE_ACRYLIC);
 		if (rule->has & RULE_TYPE_BORDER_RADIUS)
-			surface_client_set_border_radius(xwayland_view->client, rule->border_radius);
+			surface_client_set_border_radius(xwayland_toplevel->view.client, rule->border_radius);
 		if (rule->has & RULE_TYPE_SHADOW)
-			surface_client_set_shadow(xwayland_view->client, rule->flags & RULE_TYPE_SHADOW);
+			surface_client_set_shadow(xwayland_toplevel->view.client, rule->flags & RULE_TYPE_SHADOW);
 		if (rule->has & RULE_TYPE_OPACITY)
-			surface_set_opacity(&xwayland_view->scene_tree->node, rule->opacity);
+			surface_set_opacity(&xwayland_toplevel->view.scene_tree->node, rule->opacity);
 	}
 
 	render_unfocused_client_update(client);
@@ -585,23 +575,25 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		.app_id = app_id,
 		.title = title,
 	};
-	xwayland_view->ext_foreign_toplevel =
+	xwayland_toplevel->view.ext_foreign_toplevel =
 		wlr_ext_foreign_toplevel_handle_v1_create(server.foreign_toplevel_list, &ext_state);
-	xwayland_view->ext_foreign_toplevel->data = xwayland_view;
-	xwayland_view->foreign_identifier = xwayland_view->ext_foreign_toplevel->identifier;
+	xwayland_toplevel->view.ext_foreign_toplevel->data = &xwayland_toplevel->view;
+	xwayland_toplevel->view.foreign_identifier =
+		xwayland_toplevel->view.ext_foreign_toplevel->identifier;
 
-	xwayland_view->foreign_toplevel =
+	xwayland_toplevel->view.foreign_toplevel =
 		wlr_foreign_toplevel_handle_v1_create(server.foreign_toplevel_manager);
 
-	client_connect_foreign_toplevel(xwayland_view->client, xwayland_view->foreign_toplevel);
+	client_connect_foreign_toplevel(xwayland_toplevel->view.client,
+		xwayland_toplevel->view.foreign_toplevel);
 
 	if (app_id)
-		wlr_foreign_toplevel_handle_v1_set_app_id(xwayland_view->foreign_toplevel, app_id);
+		wlr_foreign_toplevel_handle_v1_set_app_id(xwayland_toplevel->view.foreign_toplevel, app_id);
 
 	bool rule_forces_float = rule && rule->has & RULE_TYPE_STATE && rule->state == STATE_FLOATING;
 	bool layout_floated = false;
 	if (wants_float || rule_forces_float) {
-		wlr_scene_node_reparent(&xwayland_view->scene_tree->node, server.float_tree);
+		wlr_scene_node_reparent(&xwayland_toplevel->view.scene_tree->node, server.float_tree);
 		client->floating_rectangle.x = xsurface->x;
 		client->floating_rectangle.y = xsurface->y;
 		client->floating_rectangle.width = xsurface->width;
@@ -609,14 +601,14 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		client->state = STATE_FLOATING;
 		client->last_state = STATE_TILED;
 
-		wlr_scene_node_set_position(&xwayland_view->scene_tree->node, client->floating_rectangle.x,
-			client->floating_rectangle.y);
+		wlr_scene_node_set_position(&xwayland_toplevel->view.scene_tree->node,
+			client->floating_rectangle.x, client->floating_rectangle.y);
 
 		node_set_hidden(node, false);
 		// a rule can ask for the toplevel to start out minimized
 		if (!client->flags.minimized) {
 			client->flags.shown = true;
-			wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, true);
+			wlr_scene_node_set_enabled(&xwayland_toplevel->view.scene_tree->node, true);
 		}
 	} else if (!(rule && rule->has & RULE_TYPE_STATE) && layout_init_client(target_monitor,
 			target_desktop, client)) {
@@ -624,7 +616,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 		// tell the client about the size and position the layout picked
 		struct wlr_box *rect = &client->floating_rectangle;
-		xwayland_view_configure(xwayland_view, rect->x, rect->y, rect->width, rect->height);
+		xwayland_toplevel_configure(xwayland_toplevel, rect->x, rect->y, rect->width, rect->height);
 	} else {
 		if (client->state != STATE_PSEUDO_TILED)
 			client->state = STATE_TILED;
@@ -634,12 +626,12 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		// a rule can ask for the toplevel to start out minimized
 		if (!client->flags.minimized) {
 			client->flags.shown = true;
-			wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, true);
-			wlr_scene_node_set_enabled(&xwayland_view->content_tree->node, true);
+			wlr_scene_node_set_enabled(&xwayland_toplevel->view.scene_tree->node, true);
+			wlr_scene_node_set_enabled(&xwayland_toplevel->view.content_tree->node, true);
 		}
 
 		wlr_log(WLR_DEBUG, "XWayland window will be tiled, scene_tree=%p enabled=%d",
-			(void *)xwayland_view->scene_tree, xwayland_view->scene_tree->node.enabled);
+			(void *)xwayland_toplevel->view.scene_tree, xwayland_toplevel->view.scene_tree->node.enabled);
 	}
 
 	bool target_desktop_is_focused = (target_desktop == target_monitor->desk);
@@ -653,7 +645,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 	if (target_desktop != d && !target_desktop_is_focused) {
 		client->flags.shown = false;
-		wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, false);
+		wlr_scene_node_set_enabled(&xwayland_toplevel->view.scene_tree->node, false);
 	}
 
 	if (should_focus)
@@ -673,8 +665,6 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		wlr_xwayland_surface_set_maximized(xsurface, true, true);
 	}
 
-	xwayland_view_apply_disable_decorations(xwayland_view);
-
 	// notify client of scale
 	if (target_monitor && target_monitor->wlr_output && xsurface->surface) {
 		float scale = target_monitor->wlr_output->scale;
@@ -691,59 +681,64 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		client && client->app_id[0] ? client->app_id : "?",
 		client && client->title[0] ? client->title : "?", node->id);
 
-	if (!wants_float && !layout_floated && xwayland_view->client) {
-		client_t *client = xwayland_view->client;
+	if (!wants_float && !layout_floated && xwayland_toplevel->view.client) {
+		client_t *client = xwayland_toplevel->view.client;
 		struct wlr_box *rect = &client->tiled_rectangle;
 		wlr_xwayland_surface_configure(xsurface, rect->x, rect->y, rect->width, rect->height);
-		xwayland_view->geometry.width = rect->width;
-		xwayland_view->geometry.height = rect->height;
-		wlr_scene_node_set_position(&xwayland_view->scene_tree->node, rect->x, rect->y);
+		xwayland_toplevel->view.geometry.width = rect->width;
+		xwayland_toplevel->view.geometry.height = rect->height;
+		wlr_scene_node_set_position(&xwayland_toplevel->view.scene_tree->node, rect->x, rect->y);
 	}
 
-	xwayland_view_set_activated(xwayland_view, true);
-	server.last_focused_xwayland_view = xwayland_view;
+	view_set_activated(&xwayland_toplevel->view, true);
+	server.last_focused_xwayland_view = &xwayland_toplevel->view;
 
 	if (!client->flags.block_out_from_screenshare) {
-		xwayland_view->image_capture_surface =
-			wlr_scene_surface_create(&xwayland_view->image_capture->tree, xsurface->surface);
+		xwayland_toplevel->view.image_capture_surface =
+			wlr_scene_surface_create(&xwayland_toplevel->view.image_capture->tree, xsurface->surface);
 	}
 
+	// x11 analogue of the xdg configure ack: the surface is mapped and has drawn,
+	// so the client is ready to be arranged and shown.
+	xwayland_toplevel->view.configured = true;
+
 	wlr_log(WLR_DEBUG, "XWayland window map complete: scene_tree enabled=%d shown=%d",
-		xwayland_view->scene_tree->node.enabled, client->flags.shown);
+		xwayland_toplevel->view.scene_tree->node.enabled, client->flags.shown);
 }
 
 static void handle_unmap(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, unmap);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, unmap);
 
-	xwayland_view->mapped = false;
-	if (xwayland_view->node)
-		animation_cancel_node(xwayland_view->node);
+	xwayland_toplevel->view.mapped = false;
+	xwayland_toplevel->view.configured = false;
+	if (xwayland_toplevel->view.node)
+		animation_cancel_node(xwayland_toplevel->view.node);
 
-	wl_list_remove(&xwayland_view->commit.link);
+	wl_list_remove(&xwayland_toplevel->commit.link);
 
-	xwayland_view->image_capture_surface = NULL;
+	xwayland_toplevel->view.image_capture_surface = NULL;
 
-	if (xwayland_view->ext_foreign_toplevel) {
-		wlr_ext_foreign_toplevel_handle_v1_destroy(xwayland_view->ext_foreign_toplevel);
-		xwayland_view->ext_foreign_toplevel = NULL;
+	if (xwayland_toplevel->view.ext_foreign_toplevel) {
+		wlr_ext_foreign_toplevel_handle_v1_destroy(xwayland_toplevel->view.ext_foreign_toplevel);
+		xwayland_toplevel->view.ext_foreign_toplevel = NULL;
 	}
 
-	if (xwayland_view->foreign_toplevel) {
-		wlr_foreign_toplevel_handle_v1_destroy(xwayland_view->foreign_toplevel);
-		xwayland_view->foreign_toplevel = NULL;
+	if (xwayland_toplevel->view.foreign_toplevel) {
+		wlr_foreign_toplevel_handle_v1_destroy(xwayland_toplevel->view.foreign_toplevel);
+		xwayland_toplevel->view.foreign_toplevel = NULL;
 	}
 
-	if (xwayland_view->scene_tree) {
-		wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, false);
-		wlr_scene_node_set_enabled(&xwayland_view->content_tree->node, false);
+	if (xwayland_toplevel->view.scene_tree) {
+		wlr_scene_node_set_enabled(&xwayland_toplevel->view.scene_tree->node, false);
+		wlr_scene_node_set_enabled(&xwayland_toplevel->view.content_tree->node, false);
 	}
-	if (xwayland_view->node) {
-		output_t *mon = xwayland_view->node->output;
+	if (xwayland_toplevel->view.node) {
+		output_t *mon = xwayland_toplevel->view.node->output;
 		desktop_t *desk = NULL;
 
 		if (mon) {
-			node_t *root = xwayland_view->node;
+			node_t *root = xwayland_toplevel->view.node;
 			while (root->parent != NULL)
 				root = root->parent;
 
@@ -757,112 +752,55 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 		}
 
 		// floating and orphaned toplevels only know their desktop
-		if (desk == NULL && xwayland_view->node->desktop != NULL)
-			desk = xwayland_view->node->desktop;
+		if (desk == NULL && xwayland_toplevel->view.node->desktop != NULL)
+			desk = xwayland_toplevel->view.node->desktop;
 
-		if (xwayland_view->client) {
-			client_disconnect_outputs_update(xwayland_view->client);
-			xwayland_view->client->type = VIEW_NONE;
-			xwayland_view->client->xwayland_view = NULL;
+		if (xwayland_toplevel->view.client) {
+			view_disconnect_outputs_update(&xwayland_toplevel->view);
+			xwayland_toplevel->view.client->view = NULL;
 		}
 
 		if (desk) {
-			if (xwayland_view->client && xwayland_view->client->state == STATE_FULLSCREEN) {
-				desk->fullscreen_recreate_pending_window_id = xwayland_view->xwayland_surface->window_id;
+			if (xwayland_toplevel->view.client &&
+					xwayland_toplevel->view.client->state == STATE_FULLSCREEN) {
+				desk->fullscreen_recreate_pending_window_id = xwayland_toplevel->xwayland_surface->window_id;
 			}
 			ipc_put_status(SUB_MASK_NODE_REMOVE, "node_remove[%s,%s,%u]\n",
-				xwayland_view->client && xwayland_view->client->app_id[0] ? xwayland_view->client->app_id : "?",
-				xwayland_view->client && xwayland_view->client->title[0] ? xwayland_view->client->title : "?",
-				xwayland_view->node->id);
-			remove_node(desk, xwayland_view->node);
+				xwayland_toplevel->view.client &&
+				xwayland_toplevel->view.client->app_id[0] ? xwayland_toplevel->view.client->app_id : "?",
+				xwayland_toplevel->view.client &&
+				xwayland_toplevel->view.client->title[0] ? xwayland_toplevel->view.client->title : "?",
+				xwayland_toplevel->view.node->id);
+			remove_node(desk, xwayland_toplevel->view.node);
 			if (mon && desk) {
 				arrange(mon, desk, true);
 
 				// the closed toplevel was the last one standing
-				if (desk->focus == xwayland_view->node || !node_focusable(desk->focus))
-					desk->focus = desktop_fallback_focus(desk, xwayland_view->node);
+				if (desk->focus == xwayland_toplevel->view.node || !node_focusable(desk->focus))
+					desk->focus = desktop_fallback_focus(desk, xwayland_toplevel->view.node);
 
 				if (desk->focus != NULL)
 					focus_node(mon, desk, desk->focus);
 			}
 		}
 
-		xwayland_view->node->destroying = true;
-		xwayland_view->node = NULL;
-		xwayland_view->client = NULL;
+		xwayland_toplevel->view.node->destroying = true;
+		xwayland_toplevel->view.node = NULL;
+		xwayland_toplevel->view.client = NULL;
 	}
 }
 
 static void handle_destroy(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, destroy);
-
-	if (xwayland_view->mapped)
-		handle_unmap(&xwayland_view->unmap, NULL);
-
-	if (server.last_focused_xwayland_view == xwayland_view) {
-		uint32_t window_id = xwayland_view->xwayland_surface ? xwayland_view->xwayland_surface->window_id
-			: 0;
-		wlr_log(WLR_INFO, "Clearing last_focused_xwayland_view (window %u being destroyed)", window_id);
-		server.last_focused_xwayland_view = NULL;
-	}
-
-	if (xwayland_view->client) {
-		render_unfocused_client_remove(xwayland_view->client);
-		animation_cancel_node(xwayland_view->node);
-	}
-	if (xwayland_view->client)
-		if (xwayland_view->client) {
-			xwayland_view->client->type = VIEW_NONE;
-		xwayland_view->client->xwayland_view = NULL;
-	}
-	xwayland_view->xwayland_surface = NULL;
-
-	wl_list_remove(&xwayland_view->destroy.link);
-	wl_list_remove(&xwayland_view->request_configure.link);
-	wl_list_remove(&xwayland_view->request_fullscreen.link);
-	wl_list_remove(&xwayland_view->request_minimize.link);
-	wl_list_remove(&xwayland_view->request_maximize.link);
-	wl_list_remove(&xwayland_view->request_activate.link);
-	wl_list_remove(&xwayland_view->request_move.link);
-	wl_list_remove(&xwayland_view->request_resize.link);
-	wl_list_remove(&xwayland_view->set_title.link);
-	wl_list_remove(&xwayland_view->set_class.link);
-	wl_list_remove(&xwayland_view->set_hints.link);
-	wl_list_remove(&xwayland_view->set_window_type.link);
-	wl_list_remove(&xwayland_view->set_startup_id.link);
-	wl_list_remove(&xwayland_view->associate.link);
-	wl_list_remove(&xwayland_view->dissociate.link);
-	wl_list_remove(&xwayland_view->override_redirect.link);
-	client_disconnect_outputs_update(xwayland_view->client);
-	wl_list_remove(&xwayland_view->link);
-
-	if (xwayland_view->capture_renderer) {
-		capture_renderer_destroy(xwayland_view->capture_renderer);
-		xwayland_view->capture_renderer = NULL;
-	}
-
-	if (xwayland_view->image_capture != NULL) {
-		wlr_scene_node_destroy(&xwayland_view->image_capture->tree.node);
-		xwayland_view->image_capture = NULL;
-		xwayland_view->image_capture_source = NULL;
-	}
-
-	destroy_borders(&xwayland_view->border_tree, xwayland_view->border_rects);
-
-	if (xwayland_view->scene_tree) {
-		wlr_scene_node_destroy(&xwayland_view->scene_tree->node);
-		xwayland_view->scene_tree = NULL;
-		xwayland_view->content_tree = NULL;
-	}
-
-	free(xwayland_view);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, destroy);
+	xwayland_toplevel_destroy(xwayland_toplevel);
 }
 
 static void handle_request_configure(struct wl_listener *listener, void *data) {
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_configure);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_configure);
 	struct wlr_xwayland_surface_configure_event *ev = data;
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
 	if (!xsurface->surface || !xsurface->surface->mapped) {
 		wlr_xwayland_surface_configure(xsurface, ev->x, ev->y, ev->width, ev->height);
@@ -870,26 +808,27 @@ static void handle_request_configure(struct wl_listener *listener, void *data) {
 	}
 
 	// honor floating window request
-	if (xwayland_view->client && xwayland_view->client->state == STATE_FLOATING &&
-			!client_is_maximized(xwayland_view->client)) {
-		xwayland_view_configure(xwayland_view, ev->x, ev->y, ev->width, ev->height);
-		if (xwayland_view->node) {
-			xwayland_view->client->floating_rectangle.x = ev->x;
-			xwayland_view->client->floating_rectangle.y = ev->y;
-			xwayland_view->client->floating_rectangle.width = ev->width;
-			xwayland_view->client->floating_rectangle.height = ev->height;
+	if (xwayland_toplevel->view.client && xwayland_toplevel->view.client->state == STATE_FLOATING &&
+			!client_is_maximized(xwayland_toplevel->view.client)) {
+		xwayland_toplevel_configure(xwayland_toplevel, ev->x, ev->y, ev->width, ev->height);
+		if (xwayland_toplevel->view.node) {
+			xwayland_toplevel->view.client->floating_rectangle.x = ev->x;
+			xwayland_toplevel->view.client->floating_rectangle.y = ev->y;
+			xwayland_toplevel->view.client->floating_rectangle.width = ev->width;
+			xwayland_toplevel->view.client->floating_rectangle.height = ev->height;
 		}
 	} else {
-		xwayland_sync_configure(xwayland_view);
+		xwayland_sync_configure(xwayland_toplevel);
 	}
 }
 
 static void handle_request_fullscreen(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_fullscreen);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_fullscreen);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	node_t *node = xwayland_view->node;
+	node_t *node = xwayland_toplevel->view.node;
 	if (!node || !node->client || !node->output || !node->desktop)
 		return;
 
@@ -917,10 +856,11 @@ static void handle_request_fullscreen(struct wl_listener *listener, void *data) 
 
 static void handle_request_maximize(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_maximize);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_maximize);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	node_t *node = xwayland_view->node;
+	node_t *node = xwayland_toplevel->view.node;
 	if (node == NULL || node->client == NULL)
 		return;
 
@@ -937,18 +877,19 @@ static void handle_request_maximize(struct wl_listener *listener, void *data) {
 	client_set_maximized(m, d, node, requested);
 
 	wlr_xwayland_surface_set_maximized(xsurface, requested, requested);
-	xwayland_sync_configure(xwayland_view);
+	xwayland_sync_configure(xwayland_toplevel);
 }
 
 static void handle_request_minimize(struct wl_listener *listener, void *data) {
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_minimize);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_minimize);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 	struct wlr_xwayland_minimize_event *ev = data;
 
-	if (xwayland_view->node != NULL) {
-		output_t *m = xwayland_view->node->output;
-		desktop_t *d = xwayland_view->node->desktop;
-		client_set_minimized(m, d, xwayland_view->node, ev->minimize);
+	if (xwayland_toplevel->view.node != NULL) {
+		output_t *m = xwayland_toplevel->view.node->output;
+		desktop_t *d = xwayland_toplevel->view.node->desktop;
+		client_set_minimized(m, d, xwayland_toplevel->view.node, ev->minimize);
 	}
 
 	wlr_xwayland_surface_set_minimized(xsurface, ev->minimize);
@@ -956,20 +897,22 @@ static void handle_request_minimize(struct wl_listener *listener, void *data) {
 
 static void handle_request_activate(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_activate);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_activate);
 
-	if (!xwayland_view->xwayland_surface->surface || !xwayland_view->xwayland_surface->surface->mapped)
+	if (!xwayland_toplevel->xwayland_surface->surface ||
+		!xwayland_toplevel->xwayland_surface->surface->mapped)
 		return;
 
-	if (xwayland_view->node) {
-		output_t *mon = xwayland_view->node->output;
+	if (xwayland_toplevel->view.node) {
+		output_t *mon = xwayland_toplevel->view.node->output;
 		if (mon) {
 			desktop_t *d;
 			wl_list_for_each(d, &mon->desk_list, link) {
 				node_t *n = d->root;
-				if (n == xwayland_view->node || (n && (n->first_child == xwayland_view->node ||
-						n->second_child == xwayland_view->node))) {
-					activate_node(mon, d, xwayland_view->node);
+				if (n == xwayland_toplevel->view.node || (n && (n->first_child == xwayland_toplevel->view.node ||
+						n->second_child == xwayland_toplevel->view.node))) {
+					activate_node(mon, d, xwayland_toplevel->view.node);
 					break;
 				}
 			}
@@ -979,70 +922,75 @@ static void handle_request_activate(struct wl_listener *listener, void *data) {
 
 static void handle_request_move(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_move);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_move);
 
-	if (!xwayland_view->xwayland_surface->surface || !xwayland_view->xwayland_surface->surface->mapped)
+	if (!xwayland_toplevel->xwayland_surface->surface ||
+		!xwayland_toplevel->xwayland_surface->surface->mapped)
 		return;
 
-	if (xwayland_view->client && xwayland_view->client->state == STATE_FLOATING)
-		begin_xwayland_interactive(xwayland_view, CURSOR_MOVE, 0);
+	if (xwayland_toplevel->view.client && xwayland_toplevel->view.client->state == STATE_FLOATING)
+		view_begin_interactive(&xwayland_toplevel->view, CURSOR_MOVE, 0);
 }
 
 static void handle_request_resize(struct wl_listener *listener, void *data) {
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, request_resize);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		request_resize);
 	struct wlr_xwayland_resize_event *ev = data;
 
-	if (!xwayland_view->xwayland_surface->surface || !xwayland_view->xwayland_surface->surface->mapped)
+	if (!xwayland_toplevel->xwayland_surface->surface ||
+		!xwayland_toplevel->xwayland_surface->surface->mapped)
 		return;
 
-	if (xwayland_view->client && xwayland_view->client->state == STATE_FLOATING)
-		begin_xwayland_interactive(xwayland_view, CURSOR_RESIZE, ev->edges);
+	if (xwayland_toplevel->view.client && xwayland_toplevel->view.client->state == STATE_FLOATING)
+		view_begin_interactive(&xwayland_toplevel->view, CURSOR_RESIZE, ev->edges);
 }
 
 static void handle_set_title(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, set_title);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, set_title);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	if (xwayland_view->client && xsurface->title) {
-		strncpy(xwayland_view->client->title, xsurface->title, MAXLEN - 1);
-		xwayland_view->client->title[MAXLEN - 1] = '\0';
-		tabs_update_label_for_leaf(xwayland_view->node);
+	if (xwayland_toplevel->view.client && xsurface->title) {
+		strncpy(xwayland_toplevel->view.client->title, xsurface->title, MAXLEN - 1);
+		xwayland_toplevel->view.client->title[MAXLEN - 1] = '\0';
+		tabs_update_label_for_leaf(xwayland_toplevel->view.node);
 	}
 }
 
 static void handle_set_class(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, set_class);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, set_class);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	if (xwayland_view->client && xsurface->class) {
-		strncpy(xwayland_view->client->app_id, xsurface->class, MAXLEN - 1);
-		xwayland_view->client->app_id[MAXLEN - 1] = '\0';
-		tabs_update_label_for_leaf(xwayland_view->node);
+	if (xwayland_toplevel->view.client && xsurface->class) {
+		strncpy(xwayland_toplevel->view.client->app_id, xsurface->class, MAXLEN - 1);
+		xwayland_toplevel->view.client->app_id[MAXLEN - 1] = '\0';
+		tabs_update_label_for_leaf(xwayland_toplevel->view.node);
 	}
 }
 
 static void handle_set_hints(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, set_hints);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, set_hints);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	if (xwayland_view->client) {
-		xwayland_view->client->flags.urgent = xsurface->hints &&
+	if (xwayland_toplevel->view.client) {
+		xwayland_toplevel->view.client->flags.urgent = xsurface->hints &&
 			(xsurface->hints->flags & XCB_ICCCM_WM_HINT_X_URGENCY);
 		ipc_put_status(SUB_MASK_REPORT, NULL);
 		ipc_put_status(SUB_MASK_NODE_FLAG, "node_flag[%s,%s,%u,%c]\n",
-			xwayland_view->client->app_id[0] ? xwayland_view->client->app_id : "?",
-			xwayland_view->client->title[0] ? xwayland_view->client->title : "?", xwayland_view->node->id,
-			xwayland_view->client->flags.urgent ? 'U' : 'u');
+			xwayland_toplevel->view.client->app_id[0] ? xwayland_toplevel->view.client->app_id : "?",
+			xwayland_toplevel->view.client->title[0] ? xwayland_toplevel->view.client->title : "?",
+			xwayland_toplevel->view.node->id, xwayland_toplevel->view.client->flags.urgent ? 'U' : 'u');
 	}
 }
 
 static void handle_set_startup_id(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, set_startup_id);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		set_startup_id);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
 	if (xsurface->startup_id == NULL)
 		return;
@@ -1060,56 +1008,58 @@ static void handle_set_startup_id(struct wl_listener *listener, void *data) {
 
 static void handle_set_window_type(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, set_window_type);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		set_window_type);
 
-	bool should_float = xwayland_view_wants_floating(xwayland_view);
+	bool should_float = xwayland_toplevel_wants_floating(xwayland_toplevel);
 
-	if (xwayland_view->client) {
-		client_state_t current_state = xwayland_view->client->state;
+	if (xwayland_toplevel->view.client) {
+		client_state_t current_state = xwayland_toplevel->view.client->state;
 		bool is_floating = (current_state == STATE_FLOATING);
 
 		if (should_float && !is_floating)
-			xwayland_view->client->state = STATE_FLOATING;
+			xwayland_toplevel->view.client->state = STATE_FLOATING;
 		else if (!should_float && is_floating)
-			xwayland_view->client->state = STATE_TILED;
+			xwayland_toplevel->view.client->state = STATE_TILED;
 	}
 }
 
 static void handle_associate(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, associate);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, associate);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
-	wl_signal_add(&xsurface->surface->events.map, &xwayland_view->map);
-	xwayland_view->map.notify = handle_map;
-	wl_signal_add(&xsurface->surface->events.unmap, &xwayland_view->unmap);
-	xwayland_view->unmap.notify = handle_unmap;
+	wl_signal_add(&xsurface->surface->events.map, &xwayland_toplevel->map);
+	xwayland_toplevel->map.notify = handle_map;
+	wl_signal_add(&xsurface->surface->events.unmap, &xwayland_toplevel->unmap);
+	xwayland_toplevel->unmap.notify = handle_unmap;
 }
 
 static void handle_dissociate(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, dissociate);
-	wl_list_remove(&xwayland_view->map.link);
-	wl_list_remove(&xwayland_view->unmap.link);
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel, dissociate);
+	wl_list_remove(&xwayland_toplevel->map.link);
+	wl_list_remove(&xwayland_toplevel->unmap.link);
 }
 
 static void handle_override_redirect(struct wl_listener *listener, void *data) {
 	(void)data;
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, override_redirect);
-	struct wlr_xwayland_surface *xsurface = xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xwayland_toplevel = wl_container_of(listener, xwayland_toplevel,
+		override_redirect);
+	struct wlr_xwayland_surface *xsurface = xwayland_toplevel->xwayland_surface;
 
 	bool associated = xsurface->surface != NULL;
 	bool mapped = associated && xsurface->surface->mapped;
 
 	if (mapped)
-		handle_unmap(&xwayland_view->unmap, NULL);
+		handle_unmap(&xwayland_toplevel->unmap, NULL);
 	if (associated)
-		handle_dissociate(&xwayland_view->dissociate, NULL);
+		handle_dissociate(&xwayland_toplevel->dissociate, NULL);
 
-	xwayland_view_destroy(xwayland_view);
+	xwayland_toplevel_destroy(xwayland_toplevel);
 	xsurface->data = NULL;
 
-	xwayland_unmanaged_t *unmanaged = create_unmanaged(xsurface);
+	xwayland_unmanaged_t *unmanaged = xwayland_unmanaged_create(xsurface);
 	if (unmanaged && associated) {
 		unmanaged_handle_associate(&unmanaged->associate, NULL);
 		if (mapped)
@@ -1117,224 +1067,122 @@ static void handle_override_redirect(struct wl_listener *listener, void *data) {
 	}
 }
 
-static xwayland_toplevel_t *create_xwayland_view(struct wlr_xwayland_surface *xsurface) {
-	xwayland_toplevel_t *xwayland_view = calloc(1, sizeof(*xwayland_view));
-	if (!xwayland_view)
+static xwayland_toplevel_t *xwayland_toplevel_create(struct wlr_xwayland_surface *xsurface) {
+	xwayland_toplevel_t *xwayland_toplevel = calloc(1, sizeof(*xwayland_toplevel));
+	if (!xwayland_toplevel)
 		return NULL;
 
-	xwayland_view->xwayland_surface = xsurface;
-	xwayland_view->mapped = false;
+	xwayland_toplevel->xwayland_surface = xsurface;
+	xwayland_toplevel->view.impl = &xwayland_view_impl;
 
-	xwayland_view->scene_tree = wlr_scene_tree_create(server.tile_tree);
-	if (!xwayland_view->scene_tree) {
-		wlr_log(WLR_ERROR, "Failed to create scene tree for xwayland view");
-		free(xwayland_view);
-		return NULL;
-	}
-
-	xwayland_view->content_tree = wlr_scene_tree_create(xwayland_view->scene_tree);
-	if (!xwayland_view->content_tree) {
-		wlr_log(WLR_ERROR, "Failed to create content tree for xwayland view");
-		wlr_scene_node_destroy(&xwayland_view->scene_tree->node);
-		free(xwayland_view);
+	if (!view_init(&xwayland_toplevel->view, VIEW_XWAYLAND)) {
+		wlr_log(WLR_ERROR, "Failed to initialise view for xwayland surface");
+		free(xwayland_toplevel);
 		return NULL;
 	}
 
-	xwayland_view->scene_tree->node.data = xwayland_view;
-	wlr_scene_node_set_enabled(&xwayland_view->scene_tree->node, false);
+	xwayland_toplevel->view.scene_tree->node.data = &xwayland_toplevel->view;
+	wlr_scene_node_set_enabled(&xwayland_toplevel->view.scene_tree->node, false);
 
-	// initialize borders
-	xwayland_view->border_tree = NULL;
-	for (int i = 0; i < 4; i++)
-		xwayland_view->border_rects[i] = NULL;
+	create_borders(xwayland_toplevel->view.scene_tree, &xwayland_toplevel->view.border_tree,
+		xwayland_toplevel->view.border_rects);
 
-	create_borders(xwayland_view->scene_tree, &xwayland_view->border_tree,
-		xwayland_view->border_rects);
+	wl_signal_add(&xsurface->events.destroy, &xwayland_toplevel->destroy);
+	xwayland_toplevel->destroy.notify = handle_destroy;
 
-	// create image capture scene
-	xwayland_view->image_capture = wlr_scene_create();
-	xwayland_view->image_capture_tree = wlr_scene_tree_create(&xwayland_view->image_capture->tree);
+	wl_signal_add(&xsurface->events.request_configure, &xwayland_toplevel->request_configure);
+	xwayland_toplevel->request_configure.notify = handle_request_configure;
 
-	wl_signal_add(&xsurface->events.destroy, &xwayland_view->destroy);
-	xwayland_view->destroy.notify = handle_destroy;
+	wl_signal_add(&xsurface->events.request_fullscreen, &xwayland_toplevel->request_fullscreen);
+	xwayland_toplevel->request_fullscreen.notify = handle_request_fullscreen;
 
-	wl_signal_add(&xsurface->events.request_configure, &xwayland_view->request_configure);
-	xwayland_view->request_configure.notify = handle_request_configure;
+	wl_signal_add(&xsurface->events.request_minimize, &xwayland_toplevel->request_minimize);
+	xwayland_toplevel->request_minimize.notify = handle_request_minimize;
 
-	wl_signal_add(&xsurface->events.request_fullscreen, &xwayland_view->request_fullscreen);
-	xwayland_view->request_fullscreen.notify = handle_request_fullscreen;
+	wl_signal_add(&xsurface->events.request_maximize, &xwayland_toplevel->request_maximize);
+	xwayland_toplevel->request_maximize.notify = handle_request_maximize;
 
-	wl_signal_add(&xsurface->events.request_minimize, &xwayland_view->request_minimize);
-	xwayland_view->request_minimize.notify = handle_request_minimize;
+	wl_signal_add(&xsurface->events.request_activate, &xwayland_toplevel->request_activate);
+	xwayland_toplevel->request_activate.notify = handle_request_activate;
 
-	wl_signal_add(&xsurface->events.request_maximize, &xwayland_view->request_maximize);
-	xwayland_view->request_maximize.notify = handle_request_maximize;
+	wl_signal_add(&xsurface->events.request_move, &xwayland_toplevel->request_move);
+	xwayland_toplevel->request_move.notify = handle_request_move;
 
-	wl_signal_add(&xsurface->events.request_activate, &xwayland_view->request_activate);
-	xwayland_view->request_activate.notify = handle_request_activate;
+	wl_signal_add(&xsurface->events.request_resize, &xwayland_toplevel->request_resize);
+	xwayland_toplevel->request_resize.notify = handle_request_resize;
 
-	wl_signal_add(&xsurface->events.request_move, &xwayland_view->request_move);
-	xwayland_view->request_move.notify = handle_request_move;
+	wl_signal_add(&xsurface->events.set_title, &xwayland_toplevel->set_title);
+	xwayland_toplevel->set_title.notify = handle_set_title;
 
-	wl_signal_add(&xsurface->events.request_resize, &xwayland_view->request_resize);
-	xwayland_view->request_resize.notify = handle_request_resize;
+	wl_signal_add(&xsurface->events.set_class, &xwayland_toplevel->set_class);
+	xwayland_toplevel->set_class.notify = handle_set_class;
 
-	wl_signal_add(&xsurface->events.set_title, &xwayland_view->set_title);
-	xwayland_view->set_title.notify = handle_set_title;
+	wl_signal_add(&xsurface->events.set_hints, &xwayland_toplevel->set_hints);
+	xwayland_toplevel->set_hints.notify = handle_set_hints;
 
-	wl_signal_add(&xsurface->events.set_class, &xwayland_view->set_class);
-	xwayland_view->set_class.notify = handle_set_class;
+	wl_signal_add(&xsurface->events.set_window_type, &xwayland_toplevel->set_window_type);
+	xwayland_toplevel->set_window_type.notify = handle_set_window_type;
 
-	wl_signal_add(&xsurface->events.set_hints, &xwayland_view->set_hints);
-	xwayland_view->set_hints.notify = handle_set_hints;
+	wl_signal_add(&xsurface->events.set_startup_id, &xwayland_toplevel->set_startup_id);
+	xwayland_toplevel->set_startup_id.notify = handle_set_startup_id;
 
-	wl_signal_add(&xsurface->events.set_window_type, &xwayland_view->set_window_type);
-	xwayland_view->set_window_type.notify = handle_set_window_type;
+	wl_signal_add(&xsurface->events.associate, &xwayland_toplevel->associate);
+	xwayland_toplevel->associate.notify = handle_associate;
 
-	wl_signal_add(&xsurface->events.set_startup_id, &xwayland_view->set_startup_id);
-	xwayland_view->set_startup_id.notify = handle_set_startup_id;
+	wl_signal_add(&xsurface->events.dissociate, &xwayland_toplevel->dissociate);
+	xwayland_toplevel->dissociate.notify = handle_dissociate;
 
-	wl_signal_add(&xsurface->events.associate, &xwayland_view->associate);
-	xwayland_view->associate.notify = handle_associate;
+	wl_signal_add(&xsurface->events.set_override_redirect, &xwayland_toplevel->override_redirect);
+	xwayland_toplevel->override_redirect.notify = handle_override_redirect;
 
-	wl_signal_add(&xsurface->events.dissociate, &xwayland_view->dissociate);
-	xwayland_view->dissociate.notify = handle_dissociate;
+	xsurface->data = xwayland_toplevel;
 
-	wl_signal_add(&xsurface->events.set_override_redirect, &xwayland_view->override_redirect);
-	xwayland_view->override_redirect.notify = handle_override_redirect;
+	wl_list_insert(&server.views, &xwayland_toplevel->view.link);
 
-	xwayland_view->output_handler = wlr_scene_buffer_create(xwayland_view->scene_tree, NULL);
-	if (xwayland_view->output_handler) {
-		xwayland_view->client->outputs_update.notify = client_handle_outputs_update;
-		wl_signal_add(&xwayland_view->output_handler->events.outputs_update,
-			&xwayland_view->client->outputs_update);
-		xwayland_view->output_handler->point_accepts_input = client_output_handler_point_accepts_input;
-	}
-
-	xsurface->data = xwayland_view;
-
-	wl_list_insert(&server.xwayland.views, &xwayland_view->link);
-
-	return xwayland_view;
+	return xwayland_toplevel;
 }
 
-static void xwayland_view_destroy(xwayland_toplevel_t *xwayland_view) {
-	if (xwayland_view->mapped)
-		handle_unmap(&xwayland_view->unmap, NULL);
-	if (xwayland_view->node)
-		animation_cancel_node(xwayland_view->node);
+static void xwayland_toplevel_destroy(xwayland_toplevel_t *xwayland_toplevel) {
+	if (xwayland_toplevel->view.mapped)
+		handle_unmap(&xwayland_toplevel->unmap, NULL);
 
-	wl_list_remove(&xwayland_view->destroy.link);
-	wl_list_remove(&xwayland_view->request_configure.link);
-	wl_list_remove(&xwayland_view->request_fullscreen.link);
-	wl_list_remove(&xwayland_view->request_minimize.link);
-	wl_list_remove(&xwayland_view->request_maximize.link);
-	wl_list_remove(&xwayland_view->request_activate.link);
-	wl_list_remove(&xwayland_view->request_move.link);
-	wl_list_remove(&xwayland_view->request_resize.link);
-	wl_list_remove(&xwayland_view->set_title.link);
-	wl_list_remove(&xwayland_view->set_class.link);
-	wl_list_remove(&xwayland_view->set_hints.link);
-	wl_list_remove(&xwayland_view->set_window_type.link);
-	wl_list_remove(&xwayland_view->set_startup_id.link);
-	wl_list_remove(&xwayland_view->associate.link);
-	wl_list_remove(&xwayland_view->dissociate.link);
-	wl_list_remove(&xwayland_view->override_redirect.link);
-	client_disconnect_outputs_update(xwayland_view->client);
-
-	if (xwayland_view->output_handler) {
-		wlr_scene_node_destroy(&xwayland_view->output_handler->node);
-		xwayland_view->output_handler = NULL;
+	if (server.last_focused_xwayland_view == &xwayland_toplevel->view) {
+		uint32_t window_id = xwayland_toplevel->xwayland_surface ?
+			xwayland_toplevel->xwayland_surface->window_id : 0;
+		wlr_log(WLR_INFO, "Clearing last_focused_xwayland_view (window %u being destroyed)", window_id);
+		server.last_focused_xwayland_view = NULL;
 	}
 
-	wl_list_remove(&xwayland_view->link);
+	client_t *client = xwayland_toplevel->view.client;
+	if (client)
+		render_unfocused_client_remove(client);
 
-	if (xwayland_view->blur) {
-		blur_destroy_nodes(xwayland_view->blur);
-		if (xwayland_view->blur->blur_buf) {
-			effects_destroy_buffer(&xwayland_view->blur->blur_buf, xwayland_view->blur->blur_native);
-		}
-		if (xwayland_view->blur->mica_node) {
-			wlr_scene_node_destroy(&xwayland_view->blur->mica_node->node);
-			xwayland_view->blur->mica_node = NULL;
-		}
-		if (xwayland_view->blur->acrylic_node) {
-			wlr_scene_node_destroy(&xwayland_view->blur->acrylic_node->node);
-			xwayland_view->blur->acrylic_node = NULL;
-		}
-		if (xwayland_view->blur->acrylic_buf) {
-			effects_destroy_buffer(&xwayland_view->blur->acrylic_buf, xwayland_view->blur->acrylic_native);
-		}
-		free(xwayland_view->blur);
-		xwayland_view->blur = NULL;
-	}
+	wl_list_remove(&xwayland_toplevel->map.link);
+	wl_list_remove(&xwayland_toplevel->unmap.link);
+	wl_list_remove(&xwayland_toplevel->commit.link);
+	wl_list_remove(&xwayland_toplevel->destroy.link);
+	wl_list_remove(&xwayland_toplevel->request_configure.link);
+	wl_list_remove(&xwayland_toplevel->request_fullscreen.link);
+	wl_list_remove(&xwayland_toplevel->request_minimize.link);
+	wl_list_remove(&xwayland_toplevel->request_maximize.link);
+	wl_list_remove(&xwayland_toplevel->request_activate.link);
+	wl_list_remove(&xwayland_toplevel->request_move.link);
+	wl_list_remove(&xwayland_toplevel->request_resize.link);
+	wl_list_remove(&xwayland_toplevel->set_title.link);
+	wl_list_remove(&xwayland_toplevel->set_class.link);
+	wl_list_remove(&xwayland_toplevel->set_hints.link);
+	wl_list_remove(&xwayland_toplevel->set_window_type.link);
+	wl_list_remove(&xwayland_toplevel->set_startup_id.link);
+	wl_list_remove(&xwayland_toplevel->associate.link);
+	wl_list_remove(&xwayland_toplevel->dissociate.link);
+	wl_list_remove(&xwayland_toplevel->override_redirect.link);
 
-	if (xwayland_view->shadow) {
-		if (xwayland_view->shadow->shadow_node) {
-			wlr_scene_node_destroy(&xwayland_view->shadow->shadow_node->node);
-			xwayland_view->shadow->shadow_node = NULL;
-		}
-		if (xwayland_view->shadow->shadow_buf) {
-			effects_destroy_buffer(&xwayland_view->shadow->shadow_buf, xwayland_view->shadow->shadow_native);
-		}
-		free(xwayland_view->shadow);
-		xwayland_view->shadow = NULL;
-	}
+	wl_list_remove(&xwayland_toplevel->view.link);
 
-	if (xwayland_view->rounded) {
-		if (xwayland_view->rounded->corner_mask_node) {
-			wlr_scene_node_destroy(&xwayland_view->rounded->corner_mask_node->node);
-			xwayland_view->rounded->corner_mask_node = NULL;
-		}
-		if (xwayland_view->rounded->corner_mask_buf) {
-			effects_destroy_buffer(&xwayland_view->rounded->corner_mask_buf,
-				xwayland_view->rounded->corner_mask_native);
-		}
-		if (xwayland_view->rounded->border_shader_node) {
-			wlr_scene_node_destroy(&xwayland_view->rounded->border_shader_node->node);
-			xwayland_view->rounded->border_shader_node = NULL;
-		}
-		if (xwayland_view->rounded->border_shader_buf) {
-			effects_destroy_buffer(&xwayland_view->rounded->border_shader_buf,
-				xwayland_view->rounded->border_shader_native);
-		}
-		free(xwayland_view->rounded);
-		xwayland_view->rounded = NULL;
-	}
+	view_destroy(&xwayland_toplevel->view);
 
-	free(xwayland_view);
-}
-
-static void begin_xwayland_interactive(xwayland_toplevel_t *xwayland_view, enum cursor_mode mode,
-		uint32_t edges) {
-	if (!xwayland_view || !xwayland_view->client)
-		return;
-	if (xwayland_view->client->state != STATE_FLOATING)
-		return;
-
-	server.grabbed_toplevel = NULL;
-	server.grabbed_xwayland_view = xwayland_view;
-	server.cursor_mode = mode;
-
-	client_t *client = xwayland_view->client;
-
-	if (mode == CURSOR_MOVE) {
-		server.grab_x = server.cursor->x - client->floating_rectangle.x;
-		server.grab_y = server.cursor->y - client->floating_rectangle.y;
-	} else {
-		double border_x = server.cursor->x;
-		double border_y = server.cursor->y;
-
-		if (edges & WLR_EDGE_RIGHT)
-			border_x = client->floating_rectangle.x + client->floating_rectangle.width;
-		if (edges & WLR_EDGE_BOTTOM)
-			border_y = client->floating_rectangle.y + client->floating_rectangle.height;
-
-		server.grab_x = server.cursor->x - border_x;
-		server.grab_y = server.cursor->y - border_y;
-		server.grab_geobox = client->floating_rectangle;
-		server.resize_edges = edges;
-	}
+	xwayland_toplevel->xwayland_surface = NULL;
+	free(xwayland_toplevel);
 }
 
 static void handle_xwayland_surface(struct wl_listener *listener, void *data) {
@@ -1342,11 +1190,11 @@ static void handle_xwayland_surface(struct wl_listener *listener, void *data) {
 	struct wlr_xwayland_surface *xsurface = data;
 
 	if (xsurface->override_redirect) {
-		create_unmanaged(xsurface);
+		xwayland_unmanaged_create(xsurface);
 		return;
 	}
 
-	create_xwayland_view(xsurface);
+	xwayland_toplevel_create(xsurface);
 }
 
 static void handle_xwayland_ready(struct wl_listener *listener, void *data) {
@@ -1383,7 +1231,6 @@ static void handle_xwayland_ready(struct wl_listener *listener, void *data) {
 
 void xwayland_init(void) {
 	ONCE();
-	wl_list_init(&server.xwayland.views);
 	server.xwayland.wlr_xwayland = wlr_xwayland_create(server.wl_display, server.compositor, true);
 	if (server.xwayland.wlr_xwayland) {
 		server.xwayland.xcursor_manager = server.cursor_mgr;

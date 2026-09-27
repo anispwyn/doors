@@ -31,7 +31,7 @@ enum cursor_mode {
 
 typedef struct output_t output_t;
 struct ime_relay_t;
-typedef struct toplevel_t toplevel_t;
+typedef view_t view_t;
 
 typedef struct server_t {
 	struct wl_display *wl_display;
@@ -64,7 +64,7 @@ typedef struct server_t {
 	struct wlr_layer_shell_v1 *layer_shell;
 	struct wl_listener new_layer_surface;
 	struct wl_listener new_xdg_toplevel;
-	struct wl_list toplevels;
+	struct wl_list views;
 
 	struct wlr_xdg_decoration_manager_v1 *xdg_decoration_manager;
 	struct wl_listener new_xdg_decoration;
@@ -194,9 +194,8 @@ typedef struct server_t {
 
 	// cursor state
 	enum cursor_mode cursor_mode;
-	toplevel_t *grabbed_toplevel;
-	xwayland_toplevel_t *grabbed_xwayland_view;
-	xwayland_toplevel_t *last_focused_xwayland_view;
+	view_t *grabbed_view;
+	view_t *last_focused_xwayland_view;
 	double grab_x, grab_y;
 	struct wlr_box grab_geobox;
 	uint32_t resize_edges;

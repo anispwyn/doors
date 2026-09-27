@@ -34,7 +34,6 @@
 #include "shortcuts_inhibit.h"
 #include "spring.h"
 #include "tearing.h"
-#include "toplevel.h"
 #include "toplevel_tag.h"
 #include "transaction.h"
 #include "virtual_keyboard.h"
@@ -158,6 +157,7 @@ void server_init(void) {
 
 	wl_list_init(&mon_list);
 	wl_list_init(&orphan_desk_list);
+	wl_list_init(&server.views);
 
 	output_mgmt_init();
 

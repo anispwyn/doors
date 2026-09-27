@@ -12,7 +12,6 @@
 #include "spring.h"
 #include "tabs.h"
 #include "text.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include <fcntl.h>
@@ -152,9 +151,9 @@ void ipc_cmd_config(char **args, int num, int client_fd) {
 			tabs_rebuild_all();
 
 			// refresh decor
-			toplevel_t *tl;
-			wl_list_for_each(tl, &server.toplevels, link)
-				toplevel_apply_decoration_mode(tl);
+			view_t *tl;
+			wl_list_for_each(tl, &server.views, link)
+				tl->impl->set_decorations(tl);
 
 			transaction_commit_dirty();
 		}

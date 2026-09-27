@@ -7,7 +7,6 @@
 #include "server.h"
 #include "settings.h"
 #include "tabs.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "tree_focus.h"
 #include "types.h"
@@ -21,7 +20,7 @@ bool node_focusable(node_t *n) {
 		return false;
 
 	// the toplevel behind the node has to still be alive
-	return n->client->type != VIEW_NONE;
+	return n->client->view != NULL;
 }
 
 node_t *desktop_fallback_focus(desktop_t *d, node_t *skip) {
@@ -102,10 +101,8 @@ static bool focus_node_impl(output_t *m, desktop_t *d, node_t *n, bool give_keyb
 	}
 
 	if (give_keyboard_focus && n != NULL && n->client != NULL) {
-		if (n->client->toplevel)
-			focus_toplevel(n->client->toplevel);
-		else if (n->client->xwayland_view)
-			xwayland_view_set_activated(n->client->xwayland_view, true);
+		if (n->client->view)
+			view_set_activated(n->client->view, true);
 	}
 
 	// update border colors for all visible clients on this desktop

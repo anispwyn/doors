@@ -1,7 +1,8 @@
 #include "dialog.h"
 #include "once.h"
 #include "server.h"
-#include "toplevel.h"
+#include "types.h"
+#include "xdg_toplevel.h"
 #include <wlr/types/wlr_xdg_dialog_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/log.h>
@@ -9,7 +10,7 @@
 static void xdg_dialog_handle_new(struct wl_listener *listener, void *data) {
 	(void)listener;
 	struct wlr_xdg_dialog_v1 *dialog = data;
-	toplevel_t *toplevel = dialog->xdg_toplevel->base->data;
+	xdg_toplevel_t *toplevel = dialog->xdg_toplevel->base->data;
 	if (!toplevel)
 		return;
 

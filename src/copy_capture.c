@@ -3,7 +3,6 @@
 #include "ext-image-copy-capture-v1-protocol.h"
 #include "once.h"
 #include "server.h"
-#include "toplevel.h"
 #include "types.h"
 #include "xwayland.h"
 #include <assert.h>
@@ -88,8 +87,8 @@ struct blocked_node_state {
 static int disable_blocked_windows(struct blocked_node_state *states, int max_states) {
 	int count = 0;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->node || !tl->node->client)
 			continue;
 
@@ -101,34 +100,12 @@ static int disable_blocked_windows(struct blocked_node_state *states, int max_st
 
 		if (count >= max_states)
 			break;
-		wlr_log(WLR_DEBUG, "ext-copy-capture: disabling toplevel scene_tree=%p"
-			" app_id=%s", (void *)&tl->scene_tree->node, c->app_id);
+		wlr_log(WLR_DEBUG, "ext-copy-capture: disabling scene_tree=%p"
+			" app_id=%s title=%s", (void *)&tl->scene_tree->node, c->app_id, c->title);
 
 		states[count].node = &tl->scene_tree->node;
 		states[count].was_enabled = tl->scene_tree->node.enabled;
 		wlr_scene_node_set_enabled(&tl->scene_tree->node, false);
-		count++;
-	}
-
-	xwayland_toplevel_t *xw;
-	wl_list_for_each(xw, &server.xwayland.views, link) {
-		if (!xw->node || !xw->node->client)
-			continue;
-
-		client_t *c = xw->node->client;
-		if (!c->flags.block_out_from_screenshare)
-			continue;
-		if (!c->flags.shown && c->state != STATE_FULLSCREEN)
-			continue;
-
-		if (count >= max_states)
-			break;
-		wlr_log(WLR_DEBUG, "ext-copy-capture: disabling xwayland scene_tree=%p"
-			" title=%s", (void *)&xw->scene_tree->node, c->title);
-
-		states[count].node = &xw->scene_tree->node;
-		states[count].was_enabled = xw->scene_tree->node.enabled;
-		wlr_scene_node_set_enabled(&xw->scene_tree->node, false);
 		count++;
 	}
 
@@ -829,12 +806,12 @@ static void frame_handle_capture(struct wl_client *wl_client, struct wl_resource
 
 	// scene-node source
 	wlr_log(WLR_DEBUG, "ext-copy-capture: checking toplevel sources");
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (tl->image_capture_source != source)
 			continue;
 
-		wlr_log(WLR_DEBUG, "ext-copy-capture: found matching toplevel %p, "
+		wlr_log(WLR_DEBUG, "ext-copy-capture: found matching view %p, "
 			"calling perform_scene_node_capture", (void *)tl);
 		bool block_out = tl->node && tl->node->client &&
 			tl->node->client->flags.block_out_from_screenshare;
@@ -846,26 +823,6 @@ static void frame_handle_capture(struct wl_client *wl_client, struct wl_resource
 			return;
 		}
 
-		wlr_log(WLR_DEBUG, "ext-copy-capture: perform_scene_node_capture failed");
-		break;
-	}
-
-	xwayland_toplevel_t *xw;
-	wl_list_for_each(xw, &server.xwayland.views, link) {
-		if (xw->image_capture_source != source)
-			continue;
-
-		wlr_log(WLR_DEBUG, "ext-copy-capture: found matching xwayland view %p, "
-			"calling perform_scene_node_capture", (void *)xw);
-		bool block_out = xw->node && xw->node->client &&
-			xw->node->client->flags.block_out_from_screenshare;
-
-		if (perform_scene_node_capture(frame, source, xw->image_capture, block_out,
-				&xw->capture_renderer)) {
-			session->frame = NULL;
-			frame_destroy(frame);
-			return;
-		}
 		wlr_log(WLR_DEBUG, "ext-copy-capture: perform_scene_node_capture failed");
 		break;
 	}

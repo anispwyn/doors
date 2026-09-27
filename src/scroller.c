@@ -1,8 +1,8 @@
 #include "layout.h"
 #include "output.h"
 #include "scroller.h"
-#include "toplevel.h"
 #include "tree.h"
+#include "view.h"
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -496,10 +496,10 @@ void scroller_arrange(struct output_t *m, desktop_t *d, struct wlr_box available
 
 		for (int j = 0; j < col->tile_count; j++) {
 			client_t *c = col->tiles[j].client;
-			if (!c || !c->toplevel || !c->toplevel->node)
+			if (!c || !c->view || !c->view->node)
 				continue;
 
-			node_t *node = c->toplevel->node;
+			node_t *node = c->view->node;
 
 			if (!scroller_tile_shown(&col->tiles[j])) {
 				col->tiles[j].rect = (struct wlr_box){0};
@@ -609,8 +609,8 @@ void scroller_apply_active_focus(desktop_t *d, struct output_t *m) {
 	}
 
 	client_t *c = col->tiles[col->active_tile_idx].client;
-	if (c && c->toplevel && c->toplevel->node) {
-		node_t *target = c->toplevel->node;
+	if (c && c->view && c->view->node) {
+		node_t *target = c->view->node;
 		d->focus = target;
 		output_t *out = d->output ? d->output : m;
 		if (out)
@@ -712,7 +712,7 @@ bool scroller_view_offset_gesture_end(desktop_t *d) {
 }
 
 static bool scroller_tile_focusable(const scroller_tile_t *t) {
-	return scroller_tile_shown(t) && t->client->toplevel != NULL;
+	return scroller_tile_shown(t) && t->client->view != NULL;
 }
 
 static bool scroller_column_focusable(const scroller_column_t *col) {
@@ -1065,8 +1065,8 @@ int scroller_collect(desktop_t *d, node_t ***out_nodes) {
 	for (int i = 0; i < s->column_count; i++) {
 		for (int j = 0; j < s->columns[i].tile_count; j++) {
 			client_t *c = s->columns[i].tiles[j].client;
-			if (c && c->toplevel)
-				nodes[idx++] = c->toplevel->node;
+			if (c && c->view)
+				nodes[idx++] = c->view->node;
 		}
 	}
 

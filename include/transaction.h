@@ -9,7 +9,8 @@
 
 // forward declarations
 struct node_t;
-struct toplevel_t;
+struct view_t;
+typedef struct view_t view_t;
 
 typedef struct transaction_inst_t {
 	struct transaction_t *transaction;
@@ -58,7 +59,7 @@ void transaction_commit_dirty_client(void);
  *
  * Returns true if this instruction was found and marked ready.
  */
-bool transaction_notify_view_ready_by_serial(struct toplevel_t *toplevel, uint32_t serial);
+bool transaction_notify_view_ready_by_serial(view_t *view, uint32_t serial);
 
 /**
  * Notify the transaction system that a view is ready for the new layout,
@@ -67,7 +68,7 @@ bool transaction_notify_view_ready_by_serial(struct toplevel_t *toplevel, uint32
  * This can be used as a fallback for clients that don't properly track serials.
  * Returns true if this instruction was found and marked ready.
  */
-bool transaction_notify_view_ready_by_geometry(struct toplevel_t *toplevel, int x, int y, int width,
+bool transaction_notify_view_ready_by_geometry(view_t *view, int x, int y, int width,
 	int height);
 
 /**

@@ -5,10 +5,10 @@
 #include "once.h"
 #include "output.h"
 #include "server.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
+#include "xdg_toplevel.h"
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/types/wlr_scene.h>
@@ -175,12 +175,12 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 	if (node->destroying)
 		return;
 
-	if (node->client->type == VIEW_NONE) {
-		wlr_log(WLR_DEBUG, "Skipping arrange for node %u - no toplevel or xwayland_view", node->id);
+	if (node->client->view == NULL) {
+		wlr_log(WLR_DEBUG, "Skipping arrange for node %u - no view", node->id);
 		return;
 	}
 
-	bool ready = node->client->toplevel ? toplevel_is_ready(node->client->toplevel) : true;
+	bool ready = node->client->view ? view_is_ready(node->client->view) : true;
 	if (!ready)
 		return;
 
@@ -200,9 +200,9 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 	if (rect->width < 1 || rect->height < 1) {
 		wlr_log(WLR_DEBUG, "Node %u content area too small (%dx%d), hiding", node->id, rect->width,
 			rect->height);
-		if (node->client->toplevel) {
-			if (node->client->toplevel->saved_surface_tree)
-				toplevel_remove_saved_buffer(node->client->toplevel);
+		if (node->client->view) {
+			if (node->client->view->saved_surface_tree)
+				view_remove_saved_buffer(node->client->view);
 		}
 		struct wlr_scene_tree *st = client_get_scene_tree(node->client);
 		if (st)
@@ -211,8 +211,8 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 		return;
 	}
 
-	if (node->client->toplevel && node->client->toplevel->saved_surface_tree) {
-		toplevel_remove_saved_buffer(node->client->toplevel);
+	if (node->client->view && node->client->view->saved_surface_tree) {
+		view_remove_saved_buffer(node->client->view);
 		wlr_log(WLR_DEBUG, "Removed saved buffer for node %u", node->id);
 	}
 
@@ -223,10 +223,10 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 	bool configured = false;
 
 	scene_tree = client_get_scene_tree(node->client);
-	configured = node->client->toplevel ? node->client->toplevel->configured : true;
+	configured = node->client->view ? node->client->view->configured : true;
 
 	if (!scene_tree) {
-		wlr_log(WLR_ERROR, "Node %u has no scene tree (toplevel or xwayland_view)", node->id);
+		wlr_log(WLR_ERROR, "Node %u has no scene tree (xdg toplevel or xwayland surface)", node->id);
 		return;
 	}
 
@@ -238,22 +238,22 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 
 	// attempt resize animation for size changes
 	bool snapshot_resize = false;
-	if (node->client->toplevel && instruction->previous_tiled_rectangle.width > 0 &&
+	if (node->client->view && instruction->previous_tiled_rectangle.width > 0 &&
 			instruction->previous_tiled_rectangle.height > 0 &&
 			(instruction->previous_tiled_rectangle.width != rect->width ||
 			instruction->previous_tiled_rectangle.height != rect->height)) {
-		snapshot_resize = animation_start_resize(node->client->toplevel,
-			instruction->previous_tiled_rectangle, *rect);
+		snapshot_resize = animation_start_resize(node->client->view, instruction->previous_tiled_rectangle,
+			*rect);
 		wlr_log(WLR_DEBUG, "Started resize animation for node %u: from=(%dx%d) to=(%dx%d) active=%d",
 			node->id, instruction->previous_tiled_rectangle.width,
 			instruction->previous_tiled_rectangle.height, rect->width, rect->height, snapshot_resize);
 	}
 
 	if (!snapshot_resize) {
-		if (node->client->toplevel && node->client->toplevel->wants_fade) {
-			node->client->toplevel->wants_fade = false;
+		if (node->client->view && node->client->view->wants_fade) {
+			node->client->view->wants_fade = false;
 			wlr_scene_node_set_position(&scene_tree->node, rect->x, rect->y);
-			animation_fade_in(node->client->toplevel);
+			animation_fade_in(node->client->view);
 		} else if (instruction->previous_tiled_rectangle.width > 0 &&
 				instruction->previous_tiled_rectangle.height > 0) {
 			animation_apply_geometry_from(node, scene_tree, instruction->previous_tiled_rectangle, *rect,
@@ -270,8 +270,8 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 			unsigned int bw = effective_border_width(node->desktop);
 			struct wlr_scene_rect **border_rects = client_border_rects(node->client);
 
-			if (node->client->toplevel) {
-				struct toplevel_t *tl = node->client->toplevel;
+			if (node->client->view) {
+				view_t *tl = node->client->view;
 				bool undersized = instruction->state != STATE_FLOATING &&
 					instruction->state != STATE_FULLSCREEN && tl->geometry.width > 0 && tl->geometry.height > 0 &&
 					((int)tl->geometry.width < rect->width || (int)tl->geometry.height < rect->height ||
@@ -310,9 +310,9 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 						int new_fw = geo.width + 2 * (int)bw;
 						int new_fh = geo.height + 2 * (int)bw;
 						if (new_fw > 0 && new_fh > 0) {
-							float scale = node->client->toplevel && node->client->toplevel->node &&
-								node->client->toplevel->node->output ?
-								node->client->toplevel->node->output->wlr_output->scale : 1.0f;
+							float scale = node->client->view && node->client->view->node &&
+								node->client->view->node->output ? node->client->view->node->output->wlr_output->scale :
+								1.0f;
 							int pfw = (int)((double)new_fw * scale + 0.5);
 							int pfh = (int)((double)new_fh * scale + 0.5);
 							if (rounded->border_shader_buf_w != pfw || rounded->border_shader_buf_h != pfh) {
@@ -338,18 +338,19 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 		}
 	}
 
-	if (!snapshot_resize && node->client->toplevel)
-		toplevel_center_and_clip_surface(node->client->toplevel);
+	if (!snapshot_resize && node->client->view)
+		view_center_and_clip_surface(node->client->view);
 
-	if (node->client->xwayland_view && node->client->xwayland_view->xwayland_surface) {
-		struct wlr_xwayland_surface *xsurface = node->client->xwayland_view->xwayland_surface;
+	xwayland_toplevel_t *xv = view_to_xwayland(node->client->view);
+	if (xv && xv->xwayland_surface) {
+		struct wlr_xwayland_surface *xsurface = xv->xwayland_surface;
 		wlr_log(WLR_INFO, "Transaction xwayland node %u: target=(%d,%d %dx%d) current=(%dx%d) state=%d",
 			node->id, rect->x, rect->y, rect->width, rect->height, xsurface->width, xsurface->height,
 			instruction->state);
 		if ((int)rect->width != xsurface->width || (int)rect->height != xsurface->height) {
 			wlr_xwayland_surface_configure(xsurface, rect->x, rect->y, rect->width, rect->height);
-			node->client->xwayland_view->geometry.width = rect->width;
-			node->client->xwayland_view->geometry.height = rect->height;
+			node->client->view->geometry.width = rect->width;
+			node->client->view->geometry.height = rect->height;
 			wlr_log(WLR_INFO, "Transaction configured Xwayland: (%d,%d %dx%d)", rect->x, rect->y, rect->width,
 				rect->height);
 		} else {
@@ -424,9 +425,10 @@ static bool should_configure(node_t *node, transaction_inst_t *instruction) {
 	// holy checks
 	if (!node || !instruction)
 		return false;
-	if (!node->client || !node->client->toplevel)
+	if (!node->client || !node->client->view)
 		return false;
-	if (!node->client->toplevel->xdg_toplevel)
+	xdg_toplevel_t *xdg = view_to_xdg(node->client->view);
+	if (xdg == NULL || xdg->xdg_toplevel == NULL)
 		return false;
 	if (node->destroying)
 		return false;
@@ -434,7 +436,7 @@ static bool should_configure(node_t *node, transaction_inst_t *instruction) {
 		return false;
 
 	// always configure if new window
-	if (!node->client->toplevel->configured) {
+	if (!node->client->view->configured) {
 		wlr_log(WLR_DEBUG, "should_configure node %u: NEW window, needs configure", node->id);
 		return true;
 	}
@@ -458,20 +460,20 @@ static bool should_configure(node_t *node, transaction_inst_t *instruction) {
 		return false;
 
 	// compare target size against client's committed geometry
-	int client_w = node->client->toplevel->geometry.width;
-	int client_h = node->client->toplevel->geometry.height;
+	int client_w = node->client->view->geometry.width;
+	int client_h = node->client->view->geometry.height;
 	bool size_changed = client_w != target_rect.width || client_h != target_rect.height;
 
 	wlr_log(WLR_DEBUG, "should_configure node %u: client_geometry=(%dx%d) target=(%dx%d) "
 		"last_requested=(%dx%d) changed=%d", node->id, client_w, client_h, target_rect.width,
-			target_rect.height, node->client->toplevel->last_requested.width,
-			node->client->toplevel->last_requested.height, size_changed);
+			target_rect.height, node->client->view->last_requested.width,
+			node->client->view->last_requested.height, size_changed);
 
 	if (!size_changed)
 		return false;
 
-	if (node->client->toplevel->last_requested.width == target_rect.width &&
-			node->client->toplevel->last_requested.height == target_rect.height) {
+	if (node->client->view->last_requested.width == target_rect.width &&
+			node->client->view->last_requested.height == target_rect.height) {
 		wlr_log(WLR_DEBUG, "should_configure node %u: target unchanged since last configure, skipping",
 			node->id);
 		return false;
@@ -493,7 +495,7 @@ static int handle_timeout(void *data) {
 	bool need_retry = false;
 	transaction_inst_t *inst;
 	wl_list_for_each(inst, &txn->instructions, link) {
-		if (!inst->waiting || !inst->node->client || !inst->node->client->toplevel)
+		if (!inst->waiting || !inst->node->client || !inst->node->client->view)
 			continue;
 		transaction_add_dirty_node(inst->node);
 		need_retry = true;
@@ -548,7 +550,7 @@ static void transaction_commit(transaction_t *txn) {
 		node_t *node = instruction->node;
 
 		if (should_configure(node, instruction)) {
-			if (node->client && node->client->toplevel && toplevel_is_ready(node->client->toplevel)) {
+			if (node->client && node->client->view && view_is_ready(node->client->view)) {
 
 				// determine the correct rectangle based on client state
 				struct wlr_box *rect;
@@ -564,15 +566,15 @@ static void transaction_commit(transaction_t *txn) {
 					rect = &instruction->tiled_rectangle;
 
 				// send configure with new size
-				instruction->serial = wlr_xdg_toplevel_set_size(node->client->toplevel->xdg_toplevel,
+				instruction->serial = wlr_xdg_toplevel_set_size(view_to_xdg(node->client->view)->xdg_toplevel,
 					rect->width, rect->height);
 
-				node->client->toplevel->last_requested = *rect;
+				node->client->view->last_requested = *rect;
 
-				bool has_stable_frame = node->client->toplevel->geometry.width > 0 ||
-					node->client->toplevel->geometry.height > 0;
+				bool has_stable_frame = node->client->view->geometry.width > 0 ||
+					node->client->view->geometry.height > 0;
 				instruction->require_geometry_match = has_stable_frame && node->client->flags.shown &&
-					node->client->toplevel->configured;
+					node->client->view->configured;
 
 				// wait for all mapped toplevels to respond
 				instruction->waiting = true;
@@ -583,8 +585,8 @@ static void transaction_commit(transaction_t *txn) {
 				wlr_log(WLR_DEBUG, "Sent configure to node %u: serial=%u size=(%dx%d) waiting=%d", node->id,
 					instruction->serial, rect->width, rect->height, instruction->waiting);
 
-				toplevel_save_buffer(node->client->toplevel);
-				toplevel_send_frame_done(node->client->toplevel);
+				view_save_buffer(node->client->view);
+				view_send_frame_done(node->client->view);
 			}
 		}
 
@@ -681,11 +683,11 @@ static void set_instruction_ready(transaction_inst_t *instruction) {
 	transaction_progress();
 }
 
-bool transaction_notify_view_ready_by_serial(toplevel_t *toplevel, uint32_t serial) {
-	if (!toplevel || !toplevel->node)
+bool transaction_notify_view_ready_by_serial(view_t *view, uint32_t serial) {
+	if (!view || !view->node)
 		return false;
 
-	node_t *node = toplevel->node;
+	node_t *node = view->node;
 	if (!node->instruction)
 		return false;
 
@@ -709,12 +711,12 @@ void transaction_notify_view_unmapped(node_t *node) {
 	set_instruction_ready(instruction);
 }
 
-bool transaction_notify_view_ready_by_geometry(toplevel_t *toplevel, int x, int y, int width,
+bool transaction_notify_view_ready_by_geometry(view_t *view, int x, int y, int width,
 		int height) {
-	if (!toplevel || !toplevel->node)
+	if (!view || !view->node)
 		return false;
 
-	node_t *node = toplevel->node;
+	node_t *node = view->node;
 	if (!node->instruction)
 		return false;
 

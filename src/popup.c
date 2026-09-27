@@ -2,7 +2,7 @@
 #include "output.h"
 #include "popup.h"
 #include "server.h"
-#include "toplevel.h"
+#include "xdg_toplevel.h"
 #include <stdlib.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_output_layout.h>
@@ -100,8 +100,8 @@ static void create_xdg_popup(struct wlr_xdg_popup *xdg_popup, struct wlr_scene_t
 
 void handle_new_xdg_popup(struct wl_listener *listener, void *data) {
 	struct wlr_xdg_popup *xdg_popup = data;
-	toplevel_t *toplevel = wl_container_of(listener, toplevel, new_xdg_popup);
-	create_xdg_popup(xdg_popup, toplevel->scene_tree, toplevel->image_capture_tree);
+	xdg_toplevel_t *toplevel = wl_container_of(listener, toplevel, new_xdg_popup);
+	create_xdg_popup(xdg_popup, toplevel->view.scene_tree, toplevel->view.image_capture_tree);
 }
 
 void handle_new_layer_popup(struct wl_listener *listener, void *data) {

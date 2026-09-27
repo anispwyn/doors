@@ -1,6 +1,6 @@
 #include "once.h"
 #include "server.h"
-#include "toplevel.h"
+#include "view.h"
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_tearing_control_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
@@ -12,26 +12,11 @@ typedef struct {
 	struct wl_list link;
 } tearing_controller_t;
 
-static struct toplevel_t *toplevel_from_wlr_surface(struct wlr_surface *surface) {
-	if (!surface)
-		return NULL;
-
-	toplevel_t *toplevel;
-	wl_list_for_each(toplevel, &server.toplevels, link) {
-		if (!toplevel->xdg_toplevel || !toplevel->xdg_toplevel->base)
-			continue;
-		if (toplevel->xdg_toplevel->base->surface == surface)
-			return toplevel;
-	}
-
-	return NULL;
-}
-
 static void handle_tearing_controller_set_hint(struct wl_listener *listener, void *data) {
 	(void)data;
 	tearing_controller_t *controller = wl_container_of(listener, controller, set_hint);
 
-	struct toplevel_t *toplevel = toplevel_from_wlr_surface(controller->tearing_control->surface);
+	view_t *toplevel = view_from_wlr_surface(controller->tearing_control->surface);
 
 	if (toplevel)
 		toplevel->tearing_hint = controller->tearing_control->current;

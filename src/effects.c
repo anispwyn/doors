@@ -5,7 +5,6 @@
 #include "once.h"
 #include "output.h"
 #include "server.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "types.h"
 #include <drm_fourcc.h>
@@ -406,8 +405,8 @@ void effects_output_resize(effects_output_t *ctx, int width, int height, output_
 	effects_destroy_buffer(&ctx->screen_shader_buf, ctx->screen_shader_native);
 
 	// free per-toplevel blur/acrylic buffers since output dimensions changed
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (tl->blur) {
 			effects_destroy_buffer(&tl->blur->blur_buf, tl->blur->blur_native);
 			tl->blur->blur_mask_valid = false;
@@ -485,8 +484,8 @@ static void hide_workspace_slide_out_tree(output_t *output, node_t *node,
 	wlr_scene_node_set_enabled(*hidden, false);
 }
 
-static struct wlr_box get_client_rect(toplevel_t *tl);
-static struct wlr_box get_animated_client_rect(toplevel_t *tl);
+static struct wlr_box get_client_rect(view_t *tl);
+static struct wlr_box get_animated_client_rect(view_t *tl);
 
 // union of rects hidden during shared backdrop capture
 static void collect_hidden_blur_rects(output_t *output, effects_output_t *ctx,
@@ -593,13 +592,9 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 	struct wl_array hidden_slide_out;
 	wl_array_init(&hidden_slide_out);
 	if (exclude_slide_out) {
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link)
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link)
 			hide_workspace_slide_out_tree(output, tl->node, tl->scene_tree, &hidden_slide_out);
-
-		xwayland_toplevel_t *xw;
-		wl_list_for_each(xw, &server.xwayland.views, link)
-			hide_workspace_slide_out_tree(output, xw->node, xw->scene_tree, &hidden_slide_out);
 	}
 
 	if (server.top_tree->node.enabled)
@@ -618,7 +613,7 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 			wlr_scene_node_set_enabled(&server.float_tree->node, false);
 	}
 
-	toplevel_t *tl;
+	view_t *tl;
 	if (hide_node) {
 		*hide_flag = false;
 		if (hide_node->enabled) {
@@ -626,7 +621,7 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 			*hide_flag = true;
 		}
 	} else if (hide_blur_toplevels) {
-		wl_list_for_each(tl, &server.toplevels, link) {
+		wl_list_for_each(tl, &server.views, link) {
 			if (!tl->blur)
 				continue;
 			tl->blur->blur_scene_hidden = false;
@@ -673,7 +668,7 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 		if (*hide_flag)
 			wlr_scene_node_set_enabled(hide_node, true);
 	} else if (hide_blur_toplevels) {
-		wl_list_for_each(tl, &server.toplevels, link)
+		wl_list_for_each(tl, &server.views, link)
 			if (tl->blur && tl->blur->blur_scene_hidden)
 				wlr_scene_node_set_enabled(&tl->scene_tree->node, true);
 	}
@@ -760,7 +755,7 @@ static bool region_intersects_damage(effects_output_t *ctx, pixman_region32_t *d
 	return !pixman_region32_empty(&ctx->scratch_region_b);
 }
 
-static void build_blur_mask_params(toplevel_t *tl, output_t *output, int w, int h,
+static void build_blur_mask_params(view_t *tl, output_t *output, int w, int h,
 		struct be_corner_mask_params *params) {
 	client_t *c = tl->node->client;
 	struct wlr_box content_r = get_animated_client_rect(tl);
@@ -818,8 +813,8 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 		if (!shared_blurred.valid) {
 			shared_blurred = capture_bg_to_tex1(output, ctx, false, NULL, NULL);
 			if (!shared_blurred.valid) {
-				toplevel_t *tl;
-				wl_list_for_each(tl, &server.toplevels, link) {
+				view_t *tl;
+				wl_list_for_each(tl, &server.views, link) {
 					if (!tl->blur || blur_count(tl->blur) == 0 || !tl->node || !tl->node->client)
 						continue;
 					if (!tl->node->client->flags.shown)
@@ -836,8 +831,8 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 		// buffer stays at blur resolution, scene upscales it when drawing
 		if (!ensure_sized_buf(&ctx->blur_buf, ctx->blur_native, &ctx->blur_buf_w, &ctx->blur_buf_h,
 				ctx->blur_w, ctx->blur_h)) {
-			toplevel_t *tl;
-			wl_list_for_each(tl, &server.toplevels, link) {
+			view_t *tl;
+			wl_list_for_each(tl, &server.views, link) {
 				if (!tl->blur || blur_count(tl->blur) == 0 || !tl->node || !tl->node->client)
 					continue;
 				if (!tl->node->client->flags.shown)
@@ -875,8 +870,8 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 	any = true;
 
 	// only windows with compositor-rounded corners need a per-window buffer
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->blur || blur_count(tl->blur) == 0 || !tl->node || !tl->node->client)
 			continue;
 		if (!tl->node->client->flags.shown)
@@ -956,8 +951,8 @@ static bool rebuild_live_blur(output_t *output, be_effect_resource_t shared_blur
 
 static void push_blur_to_toplevels(output_t *output) {
 	effects_output_t *ctx = output->effects;
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->blur || blur_count(tl->blur) == 0 || !tl->node)
 			continue;
 		output_t *m = tl->node->output;
@@ -982,7 +977,7 @@ static void push_blur_to_toplevels(output_t *output) {
 
 		if (masked) {
 			int sox, soy;
-			if (!toplevel_get_surface_offset(tl, &sox, &soy)) {
+			if (!view_get_surface_offset(tl, &sox, &soy)) {
 				blur_set_buffer_null(tl->blur);
 				continue;
 			}
@@ -1054,7 +1049,7 @@ static void push_blur_to_toplevels(output_t *output) {
 			wlr_scene_node_coords(&tl->scene_tree->node, &lx, &ly);
 
 			int sox, soy;
-			if (!toplevel_get_surface_offset(tl, &sox, &soy)) {
+			if (!view_get_surface_offset(tl, &sox, &soy)) {
 				blur_set_buffer_null(tl->blur);
 				continue;
 			}
@@ -1292,8 +1287,8 @@ static bool rebuild_live_acrylic(output_t *output, pixman_region32_t *damage,
 
 	pixman_region32_t *overlap_rgn = &ctx->scratch_region_a;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->blur || !tl->blur->acrylic_node || !tl->node || !tl->node->client)
 			continue;
 		if (!tl->node->client->flags.shown)
@@ -1382,8 +1377,8 @@ static bool rebuild_live_acrylic(output_t *output, pixman_region32_t *damage,
 }
 
 static void push_acrylic_to_toplevels(output_t *output) {
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->blur || !tl->blur->acrylic_node || !tl->node)
 			continue;
 		output_t *m = tl->node->output;
@@ -1475,8 +1470,8 @@ static void push_mica_to_toplevels(output_t *output) {
 	if (!buf)
 		return;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->blur || !tl->blur->mica_node || !tl->node)
 			continue;
 		output_t *m = tl->node->output;
@@ -1504,7 +1499,7 @@ static void push_mica_to_toplevels(output_t *output) {
 	}
 }
 
-static struct wlr_box get_client_rect(toplevel_t *tl) {
+static struct wlr_box get_client_rect(view_t *tl) {
 	client_t *c = tl->node->client;
 	if (c->state == STATE_FULLSCREEN && tl->node->output)
 		return tl->node->output->rectangle;
@@ -1515,7 +1510,7 @@ static struct wlr_box get_client_rect(toplevel_t *tl) {
 }
 
 // interpolate client rect with active animation progress (resize, move, or slide)
-static struct wlr_box get_animated_client_rect(toplevel_t *tl) {
+static struct wlr_box get_animated_client_rect(view_t *tl) {
 	struct wlr_box r = get_client_rect(tl);
 	struct wlr_box anim;
 	if (animation_get_geometry_progress(tl, &anim)) {
@@ -1534,8 +1529,8 @@ static void collect_hidden_blur_rects(output_t *output, effects_output_t *ctx,
 	pixman_region32_clear(out);
 
 	if (include_toplevels) {
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (!tl->blur || !tl->node || !tl->node->client)
 				continue;
 			if (!tl->node->client->flags.shown)
@@ -1575,8 +1570,8 @@ static bool damage_reaches_visible_surface(output_t *output, effects_output_t *c
 	if (!damage || pixman_region32_empty(damage))
 		return false;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->node || !tl->node->client)
 			continue;
 		if (!tl->node->client->flags.shown)
@@ -1631,7 +1626,7 @@ static bool scene_buffer_no_input(struct wlr_scene_buffer *buffer, double *sx, d
 	return false;
 }
 
-static bool blur_render_shadow(toplevel_t *tl) {
+static bool blur_render_shadow(view_t *tl) {
 	if (!tl->shadow)
 		return false;
 	if (!tl->node || !tl->node->client)
@@ -1715,7 +1710,7 @@ static bool blur_render_shadow(toplevel_t *tl) {
 	return true;
 }
 
-static bool blur_render_border(toplevel_t *tl, int content_w, int content_h) {
+static bool blur_render_border(view_t *tl, int content_w, int content_h) {
 	if (!tl->border_tree)
 		return false;
 	if (!tl->rounded)
@@ -1816,8 +1811,8 @@ static bool blur_render_border(toplevel_t *tl, int content_w, int content_h) {
 }
 
 void effects_dirty_corner_masks(output_t *output) {
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link)
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link)
 		if (tl->rounded && tl->rounded->corner_mask_node && tl->node && tl->node->client &&
 			tl->node->client->border_radius > 0.0f && tl->node->client->state != STATE_FULLSCREEN &&
 			tl->node->output && tl->node->output == output)
@@ -1825,7 +1820,7 @@ void effects_dirty_corner_masks(output_t *output) {
 }
 
 static be_effect_resource_t capture_corner_mask_bg(output_t *output, effects_output_t *ctx,
-		toplevel_t *tl) {
+		view_t *tl) {
 	int w = output->width;
 	wlr_scene_output_set_position(ctx->capture_scene_output, output->lx, output->ly);
 
@@ -1890,7 +1885,7 @@ static be_effect_resource_t capture_corner_mask_bg(output_t *output, effects_out
 
 // window rect in layout coords including the content offset and clamped to the
 // surface size when it is smaller than its container
-static struct wlr_box corner_mask_content_rect(toplevel_t *tl) {
+static struct wlr_box corner_mask_content_rect(view_t *tl) {
 	struct wlr_box container_r = get_animated_client_rect(tl);
 	int cx = tl->content_tree->node.x;
 	int cy = tl->content_tree->node.y;
@@ -1911,8 +1906,8 @@ static bool rebuild_corner_masks(output_t *output) {
 	int w = output->width, h = output->height;
 	bool any = false;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->rounded || !tl->rounded->corner_mask_node || !tl->node || !tl->node->client)
 			continue;
 		if (!tl->node->client->flags.shown)
@@ -1978,8 +1973,8 @@ static bool rebuild_corner_masks(output_t *output) {
 }
 
 static void push_corner_masks_to_toplevels(output_t *output, bool rebuilt) {
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->rounded || !tl->rounded->corner_mask_node || !tl->node || !tl->node->client)
 			continue;
 		output_t *m = tl->node->output;
@@ -2144,15 +2139,15 @@ void effects_evict_buffers(void) {
 	if (!effects_state.available)
 		return;
 
-	if (wl_list_empty(&server.toplevels))
+	if (wl_list_empty(&server.views))
 		return;
 
 	effects_state.eviction_counter++;
 	if (effects_state.eviction_counter % 10 != 0)
 		return;
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		bool visible = tl->node && tl->node->client && tl->node->client->flags.shown;
 
 		if (tl->blur) {
@@ -2201,8 +2196,8 @@ static bool effect_regions_damaged(output_t *output, struct wlr_scene_output *sc
 	pixman_region32_t *region = &ctx->scratch_region_a;
 	pixman_region32_clear(region);
 
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)
 			continue;
 		if (!tl->node->output || tl->node->output != output)
@@ -2215,7 +2210,7 @@ static bool effect_regions_damaged(output_t *output, struct wlr_scene_output *sc
 			if (!wlr_scene_node_coords(&tl->scene_tree->node, &lx, &ly))
 				continue;
 			int sox, soy;
-			if (!toplevel_get_surface_offset(tl, &sox, &soy))
+			if (!view_get_surface_offset(tl, &sox, &soy))
 				continue;
 			int n;
 			const pixman_box32_t *boxes = pixman_region32_rectangles(&tl->blur->blur_region, &n);
@@ -2254,7 +2249,7 @@ static bool effect_regions_damaged(output_t *output, struct wlr_scene_output *sc
 	}
 
 	// corner-mask windows show the sharp backdrop behind their corners
-	wl_list_for_each(tl, &server.toplevels, link) {
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)
 			continue;
 		if (!tl->node->output || tl->node->output != output)
@@ -2280,8 +2275,8 @@ static bool effect_regions_damaged(output_t *output, struct wlr_scene_output *sc
 // returns true if a window/layer has a pending change that must be pushed to the
 // scene even when no backdrop damage intersects an effect region
 static bool effects_pending_update(output_t *output) {
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)
 			continue;
 		if (!tl->node->output || tl->node->output != output)
@@ -2305,8 +2300,8 @@ static bool effects_pending_update(output_t *output) {
 
 // returns true if a toplevel border must be re-rendered
 static bool effects_border_pending(output_t *output) {
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->rounded || !tl->rounded->border_dirty)
 			continue;
 		if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)
@@ -2320,8 +2315,8 @@ static bool effects_border_pending(output_t *output) {
 
 static bool workspace_effect_buffers_missing(output_t *output) {
 	effects_output_t *ctx = output->effects;
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		if (!tl->blur || !tl->node || !tl->node->client)
 			continue;
 		if (!tl->node->client->flags.shown || tl->node->output != output)
@@ -2368,8 +2363,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 	// check if any visible toplevel blur is on this output
 	bool has_window_blur = false;
 	if (blur_enabled) {
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (tl->blur && blur_count(tl->blur) > 0 && tl->node && tl->node->client &&
 					tl->node->client->flags.shown && tl->node->output && tl->node->output == output) {
 				has_window_blur = true;
@@ -2386,8 +2381,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 	bool any_cm = false;
 	bool any_cm_dirty = false;
 	{
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (tl->rounded && tl->rounded->corner_mask_node && tl->node && tl->node->client &&
 					tl->node->client->border_radius > 0.0f && tl->node->client->state != STATE_FULLSCREEN &&
 					tl->node->output && tl->node->output == output) {
@@ -2435,8 +2430,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 			int n_blur_nodes = 0;
 			char per_win[256] = "";
 			size_t per_left = sizeof(per_win);
-			toplevel_t *tl;
-			wl_list_for_each(tl, &server.toplevels, link) {
+			view_t *tl;
+			wl_list_for_each(tl, &server.views, link) {
 				n_blur_nodes += (int)blur_count(tl->blur);
 				if (!tl->blur)
 					continue;
@@ -2467,8 +2462,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 		goto after_capture;
 
 	{
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (!tl->shadow || (!tl->shadow->shadow_dirty && !tl->shadow->shadow_geometry_dirty))
 				continue;
 			if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)
@@ -2516,8 +2511,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 	be_effect_resource_t shared_bg = {0};
 	{
 		bool needs_bg = false;
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)
 				continue;
 			if (!tl->node->output || tl->node->output != output)
@@ -2541,8 +2536,8 @@ void effects_output_frame(output_t *output, struct wlr_scene_output *scene_outpu
 	// apply acrylic (before layer blur / corner masks so shared_bg in pong is still valid)
 	{
 		bool any_acrylic = false;
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (tl->blur && tl->blur->acrylic_node && tl->node && tl->node->client &&
 					tl->node->client->flags.shown && tl->node->output && tl->node->output == output) {
 				any_acrylic = true;
@@ -2618,8 +2613,8 @@ after_capture:
 
 	// shader border
 	{
-		toplevel_t *tl;
-		wl_list_for_each(tl, &server.toplevels, link) {
+		view_t *tl;
+		wl_list_for_each(tl, &server.views, link) {
 			if (!tl->rounded || !tl->rounded->border_dirty)
 				continue;
 			if (!tl->node || !tl->node->client || !tl->node->client->flags.shown)

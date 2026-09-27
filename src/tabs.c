@@ -3,7 +3,6 @@
 #include "server.h"
 #include "tabs.h"
 #include "text.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "tree_layout.h"
 #include "types.h"
@@ -481,10 +480,10 @@ void tabs_arrange_group(output_t *m, desktop_t *d, node_t *tabbed, struct wlr_bo
 
 	// the active tab has just been laid out, so push its new geometry out
 	if (active != NULL && active->client != NULL && !IS_FLOATING(active->client) &&
-			active->client->toplevel != NULL) {
+			active->client->view != NULL) {
 		struct wlr_scene_tree *st = client_get_scene_tree(active->client);
 		animation_apply_geometry(active, st, active->client->tiled_rectangle, true);
-		toplevel_center_and_clip_surface(active->client->toplevel);
-		toplevel_send_frame_done(active->client->toplevel);
+		view_center_and_clip_surface(active->client->view);
+		view_send_frame_done(active->client->view);
 	}
 }

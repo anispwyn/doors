@@ -1,7 +1,6 @@
 #include "once.h"
 #include "pointer_constraint.h"
 #include "server.h"
-#include "toplevel.h"
 #include "xwayland.h"
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
@@ -14,13 +13,13 @@ node_t *pointer_constraint_node(struct wlr_surface *surface) {
 
 	struct wlr_xdg_surface *xdg = wlr_xdg_surface_try_from_wlr_surface(surface);
 	if (xdg != NULL) {
-		toplevel_t *toplevel = xdg->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL ? xdg->data : NULL;
+		view_t *toplevel = xdg->role == WLR_XDG_SURFACE_ROLE_TOPLEVEL ? xdg->data : NULL;
 		return toplevel ? toplevel->node : NULL;
 	}
 
 	struct wlr_xwayland_surface *xsurface = wlr_xwayland_surface_try_from_wlr_surface(surface);
 	if (xsurface != NULL) {
-		xwayland_toplevel_t *view = xsurface->data;
+		view_t *view = xsurface->data;
 		return view ? view->node : NULL;
 	}
 

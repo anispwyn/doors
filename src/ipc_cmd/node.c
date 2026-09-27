@@ -10,7 +10,6 @@
 #include "scratchpad.h"
 #include "server.h"
 #include "tabs.h"
-#include "toplevel.h"
 #include "transaction.h"
 #include "tree.h"
 #include "workspace.h"
@@ -33,8 +32,6 @@
 #include <wlr/util/log.h>
 #include <wlr/xwayland.h>
 
-void toplevel_map(struct wl_listener *listener, void *data);
-
 static void hide_node_client(node_t *n) {
 	n->client->flags.shown = false;
 	struct wlr_scene_tree *st = client_get_scene_tree(n->client);
@@ -51,8 +48,8 @@ static void unhide_leaves(desktop_t *desk) {
 
 		ni->client->flags.shown = true;
 		bool configured = true;
-		if (ni->client->toplevel)
-			configured = ni->client->toplevel->configured;
+		if (ni->client->view)
+			configured = ni->client->view->configured;
 
 		if (!configured)
 			continue;
@@ -212,8 +209,8 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 						continue;
 					n_iter->client->flags.shown = true;
 					bool already_configured = true;
-					if (n_iter->client->toplevel)
-						already_configured = n_iter->client->toplevel->configured;
+					if (n_iter->client->view)
+						already_configured = n_iter->client->view->configured;
 					if (already_configured) {
 						struct wlr_scene_tree *scene_tree = client_get_scene_tree(n_iter->client);
 						if (scene_tree)
@@ -338,10 +335,8 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 			n->client->opacity = o;
 
 			struct wlr_scene_node *node = NULL;
-			if (n->client->toplevel)
-				node = &n->client->toplevel->scene_tree->node;
-			if (n->client->xwayland_view)
-				node = &n->client->xwayland_view->scene_tree->node;
+			if (n->client->view)
+				node = &n->client->view->scene_tree->node;
 
 			if (node) {
 				surface_set_opacity(node, o);
@@ -749,8 +744,9 @@ void ipc_cmd_node(char **args, int num, int client_fd) {
 			// reapply decoration mode for all leaves
 			for (node_t *leaf = first_extrema(target); leaf != NULL && leaf != target; leaf = next_leaf(leaf,
 					target)) {
-				if (leaf->client && leaf->client->toplevel)
-					toplevel_apply_decoration_mode(leaf->client->toplevel);
+				view_t *view = leaf->client ? leaf->client->view : NULL;
+				if (view)
+					view->impl->set_decorations(view);
 			}
 
 			if (m->desk->focus != NULL)

@@ -3,7 +3,6 @@
 #include "screencopy.h"
 #include "server.h"
 #include "settings.h"
-#include "toplevel.h"
 #include "types.h"
 #include "wlr-screencopy-unstable-v1-protocol.h"
 #include "xwayland.h"
@@ -270,25 +269,14 @@ static void block_out_surface(node_t *node, struct wlr_scene_tree *scene_tree,
 	});
 }
 
-static void block_out_window(toplevel_t *tl, struct wlr_render_pass *pass,
-		struct wlr_output *output) {
+static void block_out_window(view_t *tl, struct wlr_render_pass *pass, struct wlr_output *output) {
 	block_out_surface(tl->node, tl->scene_tree, pass, output, true, "window");
 }
 
-static void block_out_xwayland_window(xwayland_toplevel_t *view, struct wlr_render_pass *pass,
-		struct wlr_output *output) {
-	block_out_surface(view->node, view->scene_tree, pass, output, false, "xwayland window");
-}
-
 static void block_out_windows(struct wlr_render_pass *pass, struct wlr_output *output) {
-	toplevel_t *tl;
-	wl_list_for_each(tl, &server.toplevels, link) {
+	view_t *tl;
+	wl_list_for_each(tl, &server.views, link) {
 		block_out_window(tl, pass, output);
-	}
-
-	xwayland_toplevel_t *xw;
-	wl_list_for_each(xw, &server.xwayland.views, link) {
-		block_out_xwayland_window(xw, pass, output);
 	}
 }
 

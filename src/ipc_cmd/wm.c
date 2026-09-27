@@ -4,13 +4,11 @@
 #include "output.h"
 #include "output_config.h"
 #include "server.h"
-#include "toplevel.h"
 #include "tree.h"
+#include "xdg_toplevel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-void toplevel_map(struct wl_listener *listener, void *data);
 
 void ipc_cmd_wm(char **args, int num, int client_fd) {
 	char buf[DOORS_BUFSIZ];
@@ -119,11 +117,12 @@ void ipc_cmd_wm(char **args, int num, int client_fd) {
 
 		send_success(client_fd, "unimplemented\n");
 	} else if (streq("-o", *args) || streq("--adopt-orphans", *args)) {
-		struct toplevel_t *toplevel, *tmp;
+		view_t *toplevel, *tmp;
 		int adopted = 0;
-		wl_list_for_each_safe(toplevel, tmp, &server.toplevels, link) {
-			if (!toplevel->node && toplevel->xdg_toplevel && toplevel->mapped) {
-				toplevel_map(NULL, toplevel);
+		wl_list_for_each_safe(toplevel, tmp, &server.views, link) {
+			xdg_toplevel_t *xdg = view_to_xdg(toplevel);
+			if (!toplevel->node && xdg && xdg->xdg_toplevel && toplevel->mapped) {
+				xdg_toplevel_adopt(xdg);
 				adopted++;
 			}
 		}

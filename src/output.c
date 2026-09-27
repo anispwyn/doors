@@ -10,7 +10,6 @@
 #include "output.h"
 #include "output_config.h"
 #include "server.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "types.h"
 #include "workspace.h"
@@ -703,28 +702,13 @@ void output_update_scale(output_t *output, float scale) {
 	output->height = layout_box.height;
 	output->rectangle = layout_box;
 
-	toplevel_t *toplevel;
-	wl_list_for_each(toplevel, &server.toplevels, link) {
-		if (!toplevel->xdg_toplevel || !toplevel->xdg_toplevel->base ||
-			!toplevel->xdg_toplevel->base->surface || !toplevel->node)
+	view_t *view;
+	wl_list_for_each(view, &server.views, link) {
+		struct wlr_surface *surface = view_wlr_surface(view);
+		if (!surface || !view->node)
 			continue;
 
-		node_t *n = toplevel->node;
-		if (n->output && n->output == output) {
-			struct wlr_surface *surface = toplevel->xdg_toplevel->base->surface;
-			wlr_fractional_scale_v1_notify_scale(surface, scale);
-			wlr_surface_set_preferred_buffer_scale(surface, ceil(scale));
-		}
-	}
-
-	// notify all xwayland surfaces on this output
-	xwayland_toplevel_t *xw;
-	wl_list_for_each(xw, &server.xwayland.views, link) {
-		if (!xw->xwayland_surface || !xw->xwayland_surface->surface || !xw->node)
-			continue;
-
-		if (xw->node->output && xw->node->output == output) {
-			struct wlr_surface *surface = xw->xwayland_surface->surface;
+		if (view->node->output && view->node->output == output) {
 			wlr_fractional_scale_v1_notify_scale(surface, scale);
 			wlr_surface_set_preferred_buffer_scale(surface, ceil(scale));
 		}

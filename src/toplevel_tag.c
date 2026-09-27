@@ -2,15 +2,15 @@
 #include "once.h"
 #include "rule.h"
 #include "server.h"
-#include "toplevel.h"
 #include "transaction.h"
+#include "xdg_toplevel.h"
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_toplevel_tag_v1.h>
 
 static void xdg_toplevel_tag_manager_v1_handle_set_tag(struct wl_listener *listener, void *data) {
 	(void)listener;
 	const struct wlr_xdg_toplevel_tag_manager_v1_set_tag_event *event = data;
-	toplevel_t *toplevel = event->toplevel->base->data;
+	xdg_toplevel_t *toplevel = event->toplevel->base->data;
 	if (!toplevel)
 		return;
 
@@ -21,12 +21,13 @@ static void xdg_toplevel_tag_manager_v1_handle_set_tag(struct wl_listener *liste
 		return;
 	}
 
-	if (toplevel->node && toplevel->node->client) {
-		const char *app_id = toplevel->node->client->app_id;
-		const char *title = toplevel->node->client->title;
+	node_t *n = toplevel->view.node;
+	if (n && n->client) {
+		const char *app_id = n->client->app_id;
+		const char *title = n->client->title;
 		find_matching_rule(app_id, title, toplevel->tag);
 		ipc_put_status(SUB_MASK_NODE_CHANGE, "node_change[%s,%s,%u,tag]\n",
-			app_id && app_id[0] ? app_id : "?", title && title[0] ? title : "?", toplevel->node->id);
+			app_id && app_id[0] ? app_id : "?", title && title[0] ? title : "?", n->id);
 	}
 
 	transaction_commit_dirty();
