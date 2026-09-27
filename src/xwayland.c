@@ -54,7 +54,6 @@ static xwayland_toplevel_t *create_xwayland_view(struct wlr_xwayland_surface *xs
 static xwayland_unmanaged_t *create_unmanaged(struct wlr_xwayland_surface *xsurface);
 static void begin_xwayland_interactive(struct xwayland_toplevel_t *xwayland_view,
 	enum cursor_mode mode, uint32_t edges);
-static void handle_xwayland_outputs_update(struct wl_listener *listener, void *data);
 
 static void xwayland_relative_to_absolute(struct wlr_xwayland_surface *parent, int child_x,
 		int child_y, int *abs_x, int *abs_y) {
@@ -309,46 +308,6 @@ static struct xwayland_unmanaged_t *create_unmanaged(struct wlr_xwayland_surface
 	return surface;
 }
 
-static bool xwayland_output_handler_point_accepts_input(struct wlr_scene_buffer *buffer, double *x,
-		double *y) {
-	(void)buffer;
-	(void)x;
-	(void)y;
-	return false;
-}
-
-static void handle_xwayland_outputs_update(struct wl_listener *listener, void *data) {
-	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, outputs_update);
-	struct wlr_scene_outputs_update_event *event = data;
-
-	if (xwayland_view->foreign_toplevel) {
-		struct wlr_foreign_toplevel_handle_v1_output *toplevel_output, *tmp;
-		wl_list_for_each_safe(toplevel_output, tmp, &xwayland_view->foreign_toplevel->outputs, link) {
-			bool active = false;
-			for (size_t i = 0; i < event->size; i++) {
-				struct wlr_scene_output *scene_output = event->active[i];
-				if (scene_output->output == toplevel_output->output) {
-					active = true;
-					break;
-				}
-			}
-
-			if (!active) {
-				wlr_log(WLR_DEBUG, "XWayland toplevel output leave: %s", toplevel_output->output->name);
-				wlr_foreign_toplevel_handle_v1_output_leave(xwayland_view->foreign_toplevel,
-					toplevel_output->output);
-			}
-		}
-
-		for (size_t i = 0; i < event->size; i++) {
-			struct wlr_scene_output *scene_output = event->active[i];
-			wlr_log(WLR_DEBUG, "XWayland toplevel output enter: %s", scene_output->output->name);
-			wlr_foreign_toplevel_handle_v1_output_enter(xwayland_view->foreign_toplevel,
-				scene_output->output);
-		}
-	}
-}
-
 static bool xwayland_view_wants_floating(struct xwayland_toplevel_t *xwayland_view) {
 	struct wlr_xwayland_surface *surface = xwayland_view->xwayland_surface;
 
@@ -543,6 +502,7 @@ static void handle_map(struct wl_listener *listener, void *data) {
 	}
 
 	node->client = client;
+	client->type = VIEW_XWAYLAND;
 	client->toplevel = NULL;
 	client->xwayland_view = xwayland_view;
 	xwayland_view->client = client;
@@ -601,15 +561,16 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 	if (rule) {
 		if (rule->has & RULE_TYPE_BLUR)
-			xwayland_set_effect(xwayland_view, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
+			surface_client_set_effect(xwayland_view->client, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
 		if (rule->has & RULE_TYPE_MICA)
-			xwayland_set_effect(xwayland_view, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
+			surface_client_set_effect(xwayland_view->client, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
 		if (rule->has & RULE_TYPE_ACRYLIC)
-			xwayland_set_effect(xwayland_view, EFFECT_ACRYLIC, rule->flags & RULE_TYPE_ACRYLIC);
+			surface_client_set_effect(xwayland_view->client, EFFECT_ACRYLIC,
+				rule->flags & RULE_TYPE_ACRYLIC);
 		if (rule->has & RULE_TYPE_BORDER_RADIUS)
-			xwayland_set_border_radius(xwayland_view, rule->border_radius);
+			surface_client_set_border_radius(xwayland_view->client, rule->border_radius);
 		if (rule->has & RULE_TYPE_SHADOW)
-			xwayland_set_shadow(xwayland_view, rule->flags & RULE_TYPE_SHADOW);
+			surface_client_set_shadow(xwayland_view->client, rule->flags & RULE_TYPE_SHADOW);
 		if (rule->has & RULE_TYPE_OPACITY)
 			surface_set_opacity(&xwayland_view->scene_tree->node, rule->opacity);
 	}
@@ -631,6 +592,8 @@ static void handle_map(struct wl_listener *listener, void *data) {
 
 	xwayland_view->foreign_toplevel =
 		wlr_foreign_toplevel_handle_v1_create(server.foreign_toplevel_manager);
+
+	client_connect_foreign_toplevel(xwayland_view->client, xwayland_view->foreign_toplevel);
 
 	if (app_id)
 		wlr_foreign_toplevel_handle_v1_set_app_id(xwayland_view->foreign_toplevel, app_id);
@@ -749,23 +712,6 @@ static void handle_map(struct wl_listener *listener, void *data) {
 		xwayland_view->scene_tree->node.enabled, client->flags.shown);
 }
 
-void xwayland_set_effect(xwayland_toplevel_t *xwayland_view, surface_effect_t effect,
-		bool enabled) {
-	surface_set_effect(xwayland_view->scene_tree, xwayland_view->node, &xwayland_view->blur, effect,
-		enabled);
-}
-
-void xwayland_set_border_radius(xwayland_toplevel_t *xwayland_view, float radius) {
-	surface_set_border_radius(xwayland_view->scene_tree, xwayland_view->content_tree,
-		xwayland_view->border_tree, xwayland_view->node, &xwayland_view->rounded, &xwayland_view->shadow,
-		radius);
-}
-
-void xwayland_set_shadow(xwayland_toplevel_t *xwayland_view, bool enabled) {
-	surface_set_shadow(xwayland_view->scene_tree, xwayland_view->node, &xwayland_view->shadow,
-		enabled);
-}
-
 static void handle_unmap(struct wl_listener *listener, void *data) {
 	(void)data;
 	xwayland_toplevel_t *xwayland_view = wl_container_of(listener, xwayland_view, unmap);
@@ -814,8 +760,11 @@ static void handle_unmap(struct wl_listener *listener, void *data) {
 		if (desk == NULL && xwayland_view->node->desktop != NULL)
 			desk = xwayland_view->node->desktop;
 
-		if (xwayland_view->client)
+		if (xwayland_view->client) {
+			client_disconnect_outputs_update(xwayland_view->client);
+			xwayland_view->client->type = VIEW_NONE;
 			xwayland_view->client->xwayland_view = NULL;
+		}
 
 		if (desk) {
 			if (xwayland_view->client && xwayland_view->client->state == STATE_FULLSCREEN) {
@@ -863,7 +812,10 @@ static void handle_destroy(struct wl_listener *listener, void *data) {
 		animation_cancel_node(xwayland_view->node);
 	}
 	if (xwayland_view->client)
+		if (xwayland_view->client) {
+			xwayland_view->client->type = VIEW_NONE;
 		xwayland_view->client->xwayland_view = NULL;
+	}
 	xwayland_view->xwayland_surface = NULL;
 
 	wl_list_remove(&xwayland_view->destroy.link);
@@ -882,7 +834,7 @@ static void handle_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&xwayland_view->associate.link);
 	wl_list_remove(&xwayland_view->dissociate.link);
 	wl_list_remove(&xwayland_view->override_redirect.link);
-	wl_list_remove(&xwayland_view->outputs_update.link);
+	client_disconnect_outputs_update(xwayland_view->client);
 	wl_list_remove(&xwayland_view->link);
 
 	if (xwayland_view->capture_renderer) {
@@ -1253,10 +1205,10 @@ static xwayland_toplevel_t *create_xwayland_view(struct wlr_xwayland_surface *xs
 
 	xwayland_view->output_handler = wlr_scene_buffer_create(xwayland_view->scene_tree, NULL);
 	if (xwayland_view->output_handler) {
-		xwayland_view->outputs_update.notify = handle_xwayland_outputs_update;
+		xwayland_view->client->outputs_update.notify = client_handle_outputs_update;
 		wl_signal_add(&xwayland_view->output_handler->events.outputs_update,
-			&xwayland_view->outputs_update);
-		xwayland_view->output_handler->point_accepts_input = xwayland_output_handler_point_accepts_input;
+			&xwayland_view->client->outputs_update);
+		xwayland_view->output_handler->point_accepts_input = client_output_handler_point_accepts_input;
 	}
 
 	xsurface->data = xwayland_view;
@@ -1288,7 +1240,7 @@ static void xwayland_view_destroy(xwayland_toplevel_t *xwayland_view) {
 	wl_list_remove(&xwayland_view->associate.link);
 	wl_list_remove(&xwayland_view->dissociate.link);
 	wl_list_remove(&xwayland_view->override_redirect.link);
-	wl_list_remove(&xwayland_view->outputs_update.link);
+	client_disconnect_outputs_update(xwayland_view->client);
 
 	if (xwayland_view->output_handler) {
 		wlr_scene_node_destroy(&xwayland_view->output_handler->node);

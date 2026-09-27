@@ -732,8 +732,7 @@ void monocle_toggle(output_t *m, desktop_t *d) {
 	// tell clients which window now counts as maximized
 	if (d->root != NULL) {
 		FOR_EACH_LEAF(n, d->root) {
-			if (n->client != NULL && n->client->toplevel != NULL)
-				update_foreign_toplevel_state(n->client->toplevel);
+			client_update_foreign_toplevel_state(n->client);
 		}
 	}
 }

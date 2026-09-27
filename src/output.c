@@ -1,4 +1,5 @@
 #include "animation.h"
+#include "client.h"
 #include "effects.h"
 #include "floating.h"
 #include "idle.h"
@@ -145,14 +146,6 @@ static client_t *output_fullscreen_client(output_t *output) {
 	return NULL;
 }
 
-static bool client_is_mapped(const client_t *client) {
-	if (client == NULL)
-		return false;
-	if (client->toplevel != NULL)
-		return client->toplevel->mapped;
-	return client->xwayland_view != NULL && client->xwayland_view->mapped;
-}
-
 static bool output_has_fullscreen_cover(output_t *output) {
 	return client_is_mapped(output_fullscreen_client(output));
 }
@@ -169,12 +162,7 @@ static struct wlr_surface *fullscreen_surface(output_t *output) {
 	if (!client_is_mapped(client))
 		return NULL;
 
-	if (client->toplevel != NULL)
-		return client->toplevel->xdg_toplevel->base->surface;
-	if (client->xwayland_view != NULL)
-		return client->xwayland_view->xwayland_surface->surface;
-
-	return NULL;
+	return client_wlr_surface(client);
 }
 
 static void output_configure_scene_visible(output_t *output) {

@@ -95,7 +95,6 @@ static void handle_foreign_activate_request(struct wl_listener *listener, void *
 static void handle_foreign_fullscreen_request(struct wl_listener *listener, void *data);
 static void handle_foreign_close_request(struct wl_listener *listener, void *data);
 static void handle_foreign_destroy(struct wl_listener *listener, void *data);
-static void handle_outputs_update(struct wl_listener *listener, void *data);
 static void toplevel_handle_maximize(toplevel_t *toplevel, bool requested_maximized);
 
 static bool toplevel_should_use_server_decorations(toplevel_t *tl) {
@@ -127,47 +126,86 @@ void toplevel_apply_decoration_mode(struct toplevel_t *tl) {
 	wlr_xdg_toplevel_decoration_v1_set_mode(tl->xdg_decoration, mode);
 }
 
-static void update_ext_foreign_toplevel(toplevel_t *toplevel) {
-	if (!toplevel->ext_foreign_toplevel || !toplevel->client)
+void client_update_ext_foreign_toplevel(client_t *c) {
+	if (!c)
+		return;
+	struct wlr_ext_foreign_toplevel_handle_v1 *ext = client_get_ext_foreign_toplevel(c);
+	if (!ext)
 		return;
 
 	struct wlr_ext_foreign_toplevel_handle_v1_state state = {0};
-	client_t *c = toplevel->client;
 
 	if (c->title[0] != '\0')
 		state.title = c->title;
 	if (c->app_id[0] != '\0')
 		state.app_id = c->app_id;
 
-	wlr_ext_foreign_toplevel_handle_v1_update_state(toplevel->ext_foreign_toplevel, &state);
+	wlr_ext_foreign_toplevel_handle_v1_update_state(ext, &state);
 }
 
-void update_foreign_toplevel_state(toplevel_t *toplevel) {
-	if (!toplevel->foreign_toplevel || !toplevel->client)
+void client_update_foreign_toplevel_state(client_t *c) {
+	if (!c)
+		return;
+	struct wlr_foreign_toplevel_handle_v1 *ft = client_get_foreign_toplevel(c);
+	if (!ft)
 		return;
 
-	client_t *c = toplevel->client;
-	bool maximized = client_reports_maximized(c, toplevel->node->desktop);
+	node_t *n = client_get_node(c);
+	bool maximized = client_reports_maximized(c, n ? n->desktop : NULL);
 	bool fullscreen = (c->state == STATE_FULLSCREEN);
 	bool minimized = c->flags.minimized;
 
-	wlr_foreign_toplevel_handle_v1_set_fullscreen(toplevel->foreign_toplevel, fullscreen);
-	wlr_foreign_toplevel_handle_v1_set_maximized(toplevel->foreign_toplevel, maximized);
-	wlr_foreign_toplevel_handle_v1_set_minimized(toplevel->foreign_toplevel, minimized);
+	wlr_foreign_toplevel_handle_v1_set_fullscreen(ft, fullscreen);
+	wlr_foreign_toplevel_handle_v1_set_maximized(ft, maximized);
+	wlr_foreign_toplevel_handle_v1_set_minimized(ft, minimized);
+}
+
+static void handle_foreign_activate_request(struct wl_listener *listener, void *data);
+static void handle_foreign_fullscreen_request(struct wl_listener *listener, void *data);
+static void handle_foreign_close_request(struct wl_listener *listener, void *data);
+static void handle_foreign_destroy(struct wl_listener *listener, void *data);
+
+void client_connect_foreign_toplevel(client_t *c, struct wlr_foreign_toplevel_handle_v1 *ft) {
+	if (c == NULL || ft == NULL)
+		return;
+
+	c->foreign.activate.notify = handle_foreign_activate_request;
+	wl_signal_add(&ft->events.request_activate, &c->foreign.activate);
+	c->foreign.fullscreen.notify = handle_foreign_fullscreen_request;
+	wl_signal_add(&ft->events.request_fullscreen, &c->foreign.fullscreen);
+	c->foreign.close.notify = handle_foreign_close_request;
+	wl_signal_add(&ft->events.request_close, &c->foreign.close);
+	c->foreign.destroy.notify = handle_foreign_destroy;
+	wl_signal_add(&ft->events.destroy, &c->foreign.destroy);
+}
+
+static void client_send_activated(client_t *c, bool activated) {
+	if (c == NULL)
+		return;
+	struct wlr_foreign_toplevel_handle_v1 *ft = client_get_foreign_toplevel(c);
+	if (ft != NULL)
+		wlr_foreign_toplevel_handle_v1_set_activated(ft, activated);
+
+	if (c->type == VIEW_XDG && c->toplevel->xdg_toplevel) {
+		wlr_xdg_toplevel_set_activated(c->toplevel->xdg_toplevel, activated);
+	} else if (c->type == VIEW_XWAYLAND) {
+		xwayland_view_set_activated(c->xwayland_view, activated);
+	}
 }
 
 static void handle_foreign_activate_request(struct wl_listener *listener, void *data) {
 	(void)data;
-	toplevel_t *toplevel = wl_container_of(listener, toplevel, foreign_activate_request);
+	client_t *c = wl_container_of(listener, c, foreign.activate);
 
-	if (!toplevel->client)
+	node_t *n = client_get_node(c);
+	if (n == NULL)
 		return;
 
-	output_t *m = toplevel->node->output;
+	output_t *m = n->output;
 	if (!m)
 		return;
 
-	desktop_t *toplevel_desk = toplevel->node->desktop;
+	desktop_t *toplevel_desk = n->desktop;
 	if (!toplevel_desk)
 		return;
 
@@ -175,60 +213,74 @@ static void handle_foreign_activate_request(struct wl_listener *listener, void *
 		workspace_switch_to_desktop(toplevel_desk->name);
 
 	// activating a minimized window brings it back
-	if (toplevel->client->flags.minimized)
-		client_set_minimized(m, toplevel_desk, toplevel->node, false);
+	if (c->flags.minimized)
+		client_set_minimized(m, toplevel_desk, n, false);
 
-	if (toplevel_desk->focus == toplevel->node)
+	if (toplevel_desk->focus == n)
 		return;
 
 	node_t *prev = toplevel_desk->focus;
+	if (prev != NULL && prev != n)
+		client_send_activated(prev->client, false);
 
-	if (prev && prev->client && prev->client->toplevel) {
-		struct toplevel_t *prev_toplevel = prev->client->toplevel;
-		wlr_xdg_toplevel_set_activated(prev_toplevel->xdg_toplevel, false);
-		if (prev_toplevel->foreign_toplevel)
-			wlr_foreign_toplevel_handle_v1_set_activated(prev_toplevel->foreign_toplevel, false);
-	}
-
-	activate_node(m, toplevel_desk, toplevel->node);
+	activate_node(m, toplevel_desk, n);
 }
 
 static void handle_foreign_fullscreen_request(struct wl_listener *listener, void *data) {
 	struct wlr_foreign_toplevel_handle_v1_fullscreen_event *event = data;
-	toplevel_t *toplevel = wl_container_of(listener, toplevel, foreign_fullscreen_request);
+	client_t *c = wl_container_of(listener, c, foreign.fullscreen);
 
-	if (toplevel->client == NULL)
+	node_t *n = client_get_node(c);
+	if (n == NULL)
 		return;
 
-	output_t *m = toplevel->node->output;
+	output_t *m = n->output;
 	desktop_t *d = m ? m->desk : NULL;
 
-	client_set_fullscreen(m, d, toplevel->node, event->fullscreen);
+	client_set_fullscreen(m, d, n, event->fullscreen);
 }
 
 static void handle_foreign_close_request(struct wl_listener *listener, void *data) {
 	(void)data;
-	toplevel_t *toplevel = wl_container_of(listener, toplevel, foreign_close_request);
-	wlr_xdg_toplevel_send_close(toplevel->xdg_toplevel);
+	client_t *c = wl_container_of(listener, c, foreign.close);
+
+	if (c->type == VIEW_XDG && c->toplevel->xdg_toplevel) {
+		wlr_xdg_toplevel_send_close(c->toplevel->xdg_toplevel);
+	} else if (c->type == VIEW_XWAYLAND) {
+		xwayland_view_close(c->xwayland_view);
+	}
+}
+
+void client_disconnect_foreign_toplevel(client_t *c) {
+	if (c == NULL)
+		return;
+	wl_list_remove(&c->foreign.activate.link);
+	wl_list_remove(&c->foreign.fullscreen.link);
+	wl_list_remove(&c->foreign.close.link);
+	wl_list_remove(&c->foreign.destroy.link);
 }
 
 static void handle_foreign_destroy(struct wl_listener *listener, void *data) {
 	(void)data;
-	toplevel_t *toplevel = wl_container_of(listener, toplevel, foreign_destroy);
-
-	wl_list_remove(&toplevel->foreign_activate_request.link);
-	wl_list_remove(&toplevel->foreign_fullscreen_request.link);
-	wl_list_remove(&toplevel->foreign_close_request.link);
-	wl_list_remove(&toplevel->foreign_destroy.link);
+	client_t *c = wl_container_of(listener, c, foreign.destroy);
+	client_disconnect_foreign_toplevel(c);
 }
 
-static void handle_outputs_update(struct wl_listener *listener, void *data) {
-	toplevel_t *toplevel = wl_container_of(listener, toplevel, outputs_update);
+void client_disconnect_outputs_update(client_t *c) {
+	if (c == NULL)
+		return;
+	wl_list_remove(&c->outputs_update.link);
+	wl_list_init(&c->outputs_update.link);
+}
+
+void client_handle_outputs_update(struct wl_listener *listener, void *data) {
+	client_t *c = wl_container_of(listener, c, outputs_update);
 	struct wlr_scene_outputs_update_event *event = data;
 
-	if (toplevel->foreign_toplevel) {
+	struct wlr_foreign_toplevel_handle_v1 *ft = client_get_foreign_toplevel(c);
+	if (ft) {
 		struct wlr_foreign_toplevel_handle_v1_output *toplevel_output, *tmp;
-		wl_list_for_each_safe(toplevel_output, tmp, &toplevel->foreign_toplevel->outputs, link) {
+		wl_list_for_each_safe(toplevel_output, tmp, &ft->outputs, link) {
 			bool active = false;
 			for (size_t i = 0; i < event->size; i++) {
 				struct wlr_scene_output *scene_output = event->active[i];
@@ -240,20 +292,19 @@ static void handle_outputs_update(struct wl_listener *listener, void *data) {
 
 			if (!active) {
 				wlr_log(WLR_DEBUG, "Toplevel output leave: %s", toplevel_output->output->name);
-				wlr_foreign_toplevel_handle_v1_output_leave(toplevel->foreign_toplevel,
-					toplevel_output->output);
+				wlr_foreign_toplevel_handle_v1_output_leave(ft, toplevel_output->output);
 			}
 		}
 
 		for (size_t i = 0; i < event->size; i++) {
 			struct wlr_scene_output *scene_output = event->active[i];
 			wlr_log(WLR_DEBUG, "Toplevel output enter: %s", scene_output->output->name);
-			wlr_foreign_toplevel_handle_v1_output_enter(toplevel->foreign_toplevel, scene_output->output);
+			wlr_foreign_toplevel_handle_v1_output_enter(ft, scene_output->output);
 		}
 	}
 }
 
-static bool toplevel_output_handler_point_accepts_input(struct wlr_scene_buffer *buffer, double *x,
+bool client_output_handler_point_accepts_input(struct wlr_scene_buffer *buffer, double *x,
 		double *y) {
 	(void)buffer;
 	(void)x;
@@ -464,6 +515,7 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 	}
 
 	// link client and toplevel
+	n->client->type = VIEW_XDG;
 	n->client->toplevel = toplevel;
 	toplevel->client = n->client;
 	toplevel->node = n;
@@ -557,15 +609,15 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 
 	if (rule) {
 		if (rule->has & RULE_TYPE_BLUR)
-			toplevel_set_effect(toplevel, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
+			surface_client_set_effect(toplevel->client, EFFECT_BLUR, rule->flags & RULE_TYPE_BLUR);
 		if (rule->has & RULE_TYPE_MICA)
-			toplevel_set_effect(toplevel, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
+			surface_client_set_effect(toplevel->client, EFFECT_MICA, rule->flags & RULE_TYPE_MICA);
 		if (rule->has & RULE_TYPE_ACRYLIC)
-			toplevel_set_effect(toplevel, EFFECT_ACRYLIC, rule->flags & RULE_TYPE_ACRYLIC);
+			surface_client_set_effect(toplevel->client, EFFECT_ACRYLIC, rule->flags & RULE_TYPE_ACRYLIC);
 		if (rule->has & RULE_TYPE_BORDER_RADIUS)
-			toplevel_set_border_radius(toplevel, rule->border_radius);
+			surface_client_set_border_radius(toplevel->client, rule->border_radius);
 		if (rule->has & RULE_TYPE_SHADOW)
-			toplevel_set_shadow(toplevel, rule->flags & RULE_TYPE_SHADOW);
+			surface_client_set_shadow(toplevel->client, rule->flags & RULE_TYPE_SHADOW);
 		if (rule->has & RULE_TYPE_OPACITY)
 			surface_set_opacity(&toplevel->scene_tree->node, rule->opacity);
 	}
@@ -583,19 +635,7 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 	toplevel->foreign_toplevel =
 		wlr_foreign_toplevel_handle_v1_create(server.foreign_toplevel_manager);
 
-	toplevel->foreign_activate_request.notify = handle_foreign_activate_request;
-	wl_signal_add(&toplevel->foreign_toplevel->events.request_activate,
-		&toplevel->foreign_activate_request);
-
-	toplevel->foreign_fullscreen_request.notify = handle_foreign_fullscreen_request;
-	wl_signal_add(&toplevel->foreign_toplevel->events.request_fullscreen,
-		&toplevel->foreign_fullscreen_request);
-
-	toplevel->foreign_close_request.notify = handle_foreign_close_request;
-	wl_signal_add(&toplevel->foreign_toplevel->events.request_close, &toplevel->foreign_close_request);
-
-	toplevel->foreign_destroy.notify = handle_foreign_destroy;
-	wl_signal_add(&toplevel->foreign_toplevel->events.destroy, &toplevel->foreign_destroy);
+	client_connect_foreign_toplevel(toplevel->client, toplevel->foreign_toplevel);
 
 	// set app_id on foreign toplevel handle
 	if (app_id)
@@ -692,7 +732,7 @@ void toplevel_map(struct wl_listener *listener, void *data) {
 			toplevel->xdg_toplevel->base->surface);
 	}
 
-	update_foreign_toplevel_state(toplevel);
+	client_update_foreign_toplevel_state(toplevel->client);
 
 	render_unfocused_client_update(n->client);
 
@@ -810,8 +850,10 @@ void toplevel_unmap(struct wl_listener *listener, void *data) {
 
 		if (n)
 			n->destroying = true;
-		if (n && n->client)
+		if (n && n->client) {
+			n->client->type = VIEW_NONE;
 			n->client->toplevel = NULL;
+		}
 
 		// arrange() can commit the transaction right away, which frees a destroying node that
 		// nothing waits for any more, hold a reference until the view is reported as unmapped
@@ -964,7 +1006,7 @@ void toplevel_commit(struct wl_listener *listener, void *data) {
 	// only update blur from protocol if it wasn't set by a rule
 	if (toplevel->client && !toplevel->client->flags.blur_from_rule) {
 		if (wants_blur != has_blur)
-			toplevel_set_effect(toplevel, EFFECT_BLUR, wants_blur);
+			surface_client_set_effect(toplevel->client, EFFECT_BLUR, wants_blur);
 		if (toplevel->blur && fx) {
 			if (!pixman_region32_equal(&toplevel->blur->blur_region, &fx->blur_region)) {
 				pixman_region32_copy(&toplevel->blur->blur_region, &fx->blur_region);
@@ -979,19 +1021,6 @@ void toplevel_commit(struct wl_listener *listener, void *data) {
 
 	if (toplevel->node && toplevel->node->output)
 		output_schedule_frame(toplevel->node->output);
-}
-
-void toplevel_set_effect(toplevel_t *tl, surface_effect_t effect, bool enabled) {
-	surface_set_effect(tl->scene_tree, tl->node, &tl->blur, effect, enabled);
-}
-
-void toplevel_set_border_radius(toplevel_t *tl, float radius) {
-	surface_set_border_radius(tl->scene_tree, tl->content_tree, tl->border_tree, tl->node, &tl->rounded,
-		&tl->shadow, radius);
-}
-
-void toplevel_set_shadow(toplevel_t *tl, bool enabled) {
-	surface_set_shadow(tl->scene_tree, tl->node, &tl->shadow, enabled);
 }
 
 void toplevel_destroy(struct wl_listener *listener, void *data) {
@@ -1016,6 +1045,7 @@ void toplevel_destroy(struct wl_listener *listener, void *data) {
 	if (toplevel->client) {
 		client = toplevel->client;
 		animation_cancel_node(toplevel->node);
+		client->type = VIEW_NONE;
 		client->toplevel = NULL;
 		toplevel->node = NULL;
 		toplevel->client = NULL;
@@ -1110,7 +1140,7 @@ void toplevel_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&toplevel->request_minimize.link);
 	wl_list_remove(&toplevel->set_title.link);
 	wl_list_remove(&toplevel->set_app_id.link);
-	wl_list_remove(&toplevel->outputs_update.link);
+	client_disconnect_outputs_update(client);
 
 	// the decoration object can outlive the toplevel, e.g. when its client is destroyed
 	// together with the toplevel: its listeners must not point into the freed toplevel
@@ -1234,8 +1264,7 @@ void toplevel_set_title(struct wl_listener *listener, void *data) {
 		if (toplevel->foreign_toplevel && title)
 			wlr_foreign_toplevel_handle_v1_set_title(toplevel->foreign_toplevel, title);
 
-		if (toplevel->ext_foreign_toplevel)
-			update_ext_foreign_toplevel(toplevel);
+		client_update_ext_foreign_toplevel(toplevel->client);
 
 		tabs_update_label_for_leaf(toplevel->node);
 
@@ -1260,8 +1289,7 @@ void toplevel_set_app_id(struct wl_listener *listener, void *data) {
 		if (toplevel->foreign_toplevel && app_id)
 			wlr_foreign_toplevel_handle_v1_set_app_id(toplevel->foreign_toplevel, app_id);
 
-		if (toplevel->ext_foreign_toplevel)
-			update_ext_foreign_toplevel(toplevel);
+		client_update_ext_foreign_toplevel(toplevel->client);
 
 		tabs_update_label_for_leaf(toplevel->node);
 
@@ -1528,7 +1556,7 @@ toplevel_t *toplevel_create(struct wlr_xdg_toplevel *xdg_toplevel) {
 	if (!toplevel->output_handler) {
 		wlr_log(WLR_ERROR, "Failed to create output handler for toplevel");
 	} else {
-		toplevel->output_handler->point_accepts_input = toplevel_output_handler_point_accepts_input;
+		toplevel->output_handler->point_accepts_input = client_output_handler_point_accepts_input;
 	}
 
 	// register event listeners
@@ -1566,8 +1594,9 @@ toplevel_t *toplevel_create(struct wlr_xdg_toplevel *xdg_toplevel) {
 	wl_signal_add(&xdg_toplevel->events.set_app_id, &toplevel->set_app_id);
 
 	if (toplevel->output_handler) {
-		toplevel->outputs_update.notify = handle_outputs_update;
-		wl_signal_add(&toplevel->output_handler->events.outputs_update, &toplevel->outputs_update);
+		toplevel->client->outputs_update.notify = client_handle_outputs_update;
+		wl_signal_add(&toplevel->output_handler->events.outputs_update,
+			&toplevel->client->outputs_update);
 	}
 
 	return toplevel;

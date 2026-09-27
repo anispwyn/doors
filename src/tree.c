@@ -800,8 +800,8 @@ void client_set_fullscreen(output_t *m, desktop_t *d, node_t *n, bool value) {
 	if (!value)
 		node_set_hidden(n, false);
 
-	if (n->client->toplevel != NULL)
-		update_foreign_toplevel_state(n->client->toplevel);
+	if (n->client->type != VIEW_NONE)
+		client_update_foreign_toplevel_state(n->client);
 }
 
 bool client_set_maximized(output_t *m, desktop_t *d, node_t *n, bool value) {
@@ -842,8 +842,8 @@ bool client_set_maximized(output_t *m, desktop_t *d, node_t *n, bool value) {
 	arrange(m, d, true);
 	announce_state(n);
 
-	if (c->toplevel != NULL)
-		update_foreign_toplevel_state(c->toplevel);
+	if (c->type != VIEW_NONE)
+		client_update_foreign_toplevel_state(c);
 
 	return true;
 }
@@ -956,8 +956,8 @@ bool client_set_minimized(output_t *m, desktop_t *d, node_t *n, bool value) {
 		announce_state(n);
 	}
 
-	if (c->toplevel != NULL)
-		update_foreign_toplevel_state(c->toplevel);
+	if (c->type != VIEW_NONE)
+		client_update_foreign_toplevel_state(c);
 
 	return true;
 }

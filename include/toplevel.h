@@ -66,19 +66,20 @@ typedef struct toplevel_t {
 	struct wl_listener set_title;
 	struct wl_listener set_app_id;
 	struct wl_listener new_xdg_popup;
-	struct wl_listener outputs_update;
-
-	// foreign toplevel listeners
-	struct wl_listener foreign_activate_request;
-	struct wl_listener foreign_fullscreen_request;
-	struct wl_listener foreign_close_request;
-	struct wl_listener foreign_destroy;
 } toplevel_t;
 
 // helper functions
 void focus_toplevel(toplevel_t *toplevel);
 bool toplevel_is_ready(toplevel_t *toplevel);
-void update_foreign_toplevel_state(toplevel_t *toplevel);
+void client_update_foreign_toplevel_state(client_t *client);
+void client_update_ext_foreign_toplevel(client_t *client);
+void client_connect_foreign_toplevel(client_t *client,
+	struct wlr_foreign_toplevel_handle_v1 *handle);
+void client_disconnect_foreign_toplevel(client_t *client);
+void client_handle_outputs_update(struct wl_listener *listener, void *data);
+void client_disconnect_outputs_update(client_t *client);
+bool client_output_handler_point_accepts_input(struct wlr_scene_buffer *buffer, double *x,
+	double *y);
 void toplevel_center_and_clip_surface(toplevel_t *toplevel);
 
 // buffer saving for transactions
@@ -88,10 +89,7 @@ void toplevel_send_frame_done(toplevel_t *toplevel);
 
 void toplevel_freeze_sibling_buffers(desktop_t *d, node_t *n);
 
-void toplevel_set_effect(toplevel_t *tl, surface_effect_t effect, bool enabled);
 bool toplevel_get_surface_offset(toplevel_t *tl, int *ox, int *oy);
-void toplevel_set_border_radius(toplevel_t *tl, float radius);
-void toplevel_set_shadow(toplevel_t *tl, bool enabled);
 void toplevel_apply_decoration_mode(toplevel_t *tl);
 
 bool toplevel_can_tear(toplevel_t *toplevel);

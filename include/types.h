@@ -146,6 +146,12 @@ typedef struct {
 	uint32_t anim_disabled : 1;
 } client_flags_t;
 
+typedef enum {
+	VIEW_NONE,
+	VIEW_XDG,
+	VIEW_XWAYLAND,
+} view_type_t;
+
 typedef struct client_t {
 	char app_id[MAXLEN];
 	char title[MAXLEN];
@@ -153,8 +159,18 @@ typedef struct client_t {
 	stack_layer_t layer, last_layer;
 	struct wlr_box floating_rectangle, tiled_rectangle, committed_tiled_rectangle, arranged_rectangle;
 	struct wlr_box pre_maximize_rectangle;
+	view_type_t type;
 	struct toplevel_t *toplevel;
 	struct xwayland_toplevel_t *xwayland_view;
+
+	struct {
+		struct wl_listener activate;
+		struct wl_listener fullscreen;
+		struct wl_listener close;
+		struct wl_listener destroy;
+	} foreign;
+
+	struct wl_listener outputs_update;
 
 	// Master-stack layout properties
 	uint64_t master_stack_order;

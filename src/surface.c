@@ -1,8 +1,8 @@
+#include "client.h"
 #include "effects_backend.h"
 #include "output.h"
 #include "server.h"
 #include "surface.h"
-#include "toplevel.h"
 #include <pixman.h>
 #include <stdlib.h>
 #include <string.h>
@@ -306,26 +306,24 @@ void surface_update_rounded(surface_rounded_t **rounded, float color[4], border_
 }
 
 void surface_client_set_effect(client_t *client, surface_effect_t effect, bool enabled) {
-	if (client->toplevel)
-		toplevel_set_effect(client->toplevel, effect, enabled);
-	else if (client->xwayland_view)
-		xwayland_set_effect(client->xwayland_view, effect, enabled);
+	surface_set_effect(client_get_scene_tree(client), client_get_node(client), client_blur_slot(client),
+		effect, enabled);
 }
 
 void surface_client_set_border_radius(client_t *client, float radius) {
-	if (client->toplevel)
-		toplevel_set_border_radius(client->toplevel, radius);
-	else if (client->xwayland_view)
-		xwayland_set_border_radius(client->xwayland_view, radius);
-	else
+	if (client_get_scene_tree(client) == NULL) {
+		// no view yet, just remember it for when there is one
 		client->border_radius = radius;
+		return;
+	}
+	surface_set_border_radius(client_get_scene_tree(client), client_get_content_tree(client),
+		client_border_tree(client), client_get_node(client), client_rounded_slot(client),
+		client_shadow_slot(client), radius);
 }
 
 void surface_client_set_shadow(client_t *client, bool enabled) {
-	if (client->toplevel)
-		toplevel_set_shadow(client->toplevel, enabled);
-	else if (client->xwayland_view)
-		xwayland_set_shadow(client->xwayland_view, enabled);
+	surface_set_shadow(client_get_scene_tree(client), client_get_node(client),
+		client_shadow_slot(client), enabled);
 }
 
 static void surface_set_opacity_for_each_buffer(struct wlr_scene_buffer *buffer, int x, int y,

@@ -78,7 +78,6 @@ typedef struct xwayland_toplevel_t {
 	struct wl_listener associate;
 	struct wl_listener dissociate;
 	struct wl_listener override_redirect;
-	struct wl_listener outputs_update;
 
 	struct wl_list link;
 } xwayland_toplevel_t;
@@ -100,10 +99,6 @@ typedef struct xwayland_unmanaged_t {
 
 void xwayland_view_close(xwayland_toplevel_t *xwayland_view);
 void xwayland_view_set_activated(xwayland_toplevel_t *xwayland_view, bool activated);
-
-void xwayland_set_effect(xwayland_toplevel_t *xwayland_view, surface_effect_t effect, bool enabled);
-void xwayland_set_border_radius(xwayland_toplevel_t *xwayland_view, float radius);
-void xwayland_set_shadow(xwayland_toplevel_t *xwayland_view, bool enabled);
 
 void xwayland_init(void);
 void xwayland_fini(void);

@@ -2,7 +2,6 @@
 #include "client.h"
 #include "settings.h"
 #include "surface.h"
-#include "toplevel.h"
 #include "tree.h"
 #include "types.h"
 #include "xwayland.h"
@@ -194,11 +193,7 @@ void update_border_colors(client_t *client) {
 	bool use_shader = (has_gradient || (client->border_radius > 0.0f));
 
 	if (use_shader) {
-		surface_rounded_t **rounded_ptr = NULL;
-		if (client->toplevel)
-			rounded_ptr = &client->toplevel->rounded;
-		else if (client->xwayland_view)
-			rounded_ptr = &client->xwayland_view->rounded;
+		surface_rounded_t **rounded_ptr = client_rounded_slot(client);
 
 		// the rounded surface owns the border when it exists, otherwise fall
 		// back to the four plain rects below

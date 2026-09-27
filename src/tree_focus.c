@@ -21,7 +21,7 @@ bool node_focusable(node_t *n) {
 		return false;
 
 	// the toplevel behind the node has to still be alive
-	return n->client->toplevel != NULL || n->client->xwayland_view != NULL;
+	return n->client->type != VIEW_NONE;
 }
 
 node_t *desktop_fallback_focus(desktop_t *d, node_t *skip) {

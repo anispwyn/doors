@@ -175,7 +175,7 @@ static void arrange_node_geometry(node_t *node, transaction_inst_t *instruction)
 	if (node->destroying)
 		return;
 
-	if (!node->client->toplevel && !node->client->xwayland_view) {
+	if (node->client->type == VIEW_NONE) {
 		wlr_log(WLR_DEBUG, "Skipping arrange for node %u - no toplevel or xwayland_view", node->id);
 		return;
 	}
