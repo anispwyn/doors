@@ -1094,9 +1094,6 @@ static void xwayland_toplevel_destroy(xwayland_toplevel_t *xwayland_toplevel) {
 	if (client)
 		render_unfocused_client_remove(client);
 
-	wl_list_remove(&xwayland_toplevel->map.link);
-	wl_list_remove(&xwayland_toplevel->unmap.link);
-	wl_list_remove(&xwayland_toplevel->commit.link);
 	wl_list_remove(&xwayland_toplevel->destroy.link);
 	wl_list_remove(&xwayland_toplevel->request_configure.link);
 	wl_list_remove(&xwayland_toplevel->request_fullscreen.link);
