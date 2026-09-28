@@ -9,7 +9,6 @@
 - Effects per window state (e.g. unfocused, focused, ...)
 - Inner glow effects on borders
 - Toplevels with `blur=on` do not render toplevels with blur or mica behind it
-- On intel+vulkan, `mica=on` flashes occasionally with the content it should have but is otherwise black, `acrylic=on` looks strange (grid of light grey squares) and `blur=on` shows the toplevels' surface blurred instead of what is behind it blurred.
 - Some AMD rendering issues, will fix these after intel ones
 
 # Layout

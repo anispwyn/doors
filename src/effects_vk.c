@@ -16,6 +16,7 @@
 #include <wlr/render/allocator.h>
 #include <wlr/render/dmabuf.h>
 #include <wlr/render/drm_format_set.h>
+#include <wlr/render/swapchain.h>
 #include <wlr/interfaces/wlr_buffer.h>
 #include <wlr/render/vulkan.h>
 #include <wlr/render/wlr_renderer.h>
@@ -156,6 +157,8 @@ struct vk_border_ubo {
 
 struct vk_shared_buffer;
 
+#define VK_MAX_HELD_CAPTURES (WLR_SWAPCHAIN_CAP - 1)
+
 struct vk_data {
 	VkInstance instance;
 	VkPhysicalDevice phys_dev;
@@ -235,6 +238,14 @@ struct vk_data {
 	bool frame_dirty;
 	bool cb_begun;
 	bool cb_pending; // frame_cb submitted, fence not waited yet
+
+	// Scene captures render into a shared wlr_swapchain, but the blit that
+	// copies them into our own image is only *recorded* into frame_cb and runs
+	// at frame_end(). Holding an extra lock on each capture buffer keeps its
+	// swapchain slot acquired so a later capture in the same frame cannot
+	// re-render (and thereby overwrite) it before the blit executes.
+	struct wlr_buffer *held_captures[VK_MAX_HELD_CAPTURES];
+	int n_held_captures;
 
 	VkImageView deferred_views[3][64];
 	int n_deferred_views[3];
@@ -687,6 +698,8 @@ static void vk_defer_view(VkImageView view) {
 static VkImageView vk_lookup_or_create_view(VkImage image);
 static void vk_flush_pending_fbo_destroys(void);
 static void vk_flush_pending_sb_destroys(void);
+static void vk_release_held_captures(void);
+static void vk_free_fbo_resources(struct vk_fbo *fbo);
 
 static void vk_ensure_cb_begun(void) {
 	if (vk->cb_begun)
@@ -856,8 +869,11 @@ static struct vk_fbo *vk_ensure_blur_level(be_output_state_t *state, int i, int 
 	if (lv->native_handle[0] && lv->width == w && lv->height == h)
 		return vk_fbo_of(lv->native_handle[0]);
 	if (lv->native_handle[0]) {
-		vk_destroy_fbo(vk_fbo_of(lv->native_handle[0]));
-		free(vk_fbo_of(lv->native_handle[0]));
+		struct vk_fbo *old = vk_fbo_of(lv->native_handle[0]);
+		if ((vk->cb_begun || vk->cb_pending) && vk->n_pending_fbo_destroys < 256)
+			vk->pending_fbo_destroys[vk->n_pending_fbo_destroys++] = old;
+		else
+			vk_free_fbo_resources(old);
 		lv->native_handle[0] = lv->native_handle[1] = 0;
 	}
 	struct vk_fbo *fbo = calloc(1, sizeof(*fbo));
@@ -1422,6 +1438,7 @@ static void vk_fini(void) {
 	if (vk->cb_begun)
 		vkEndCommandBuffer(vk->frame_cb);
 	vkQueueWaitIdle(vk->queue);
+	vk_release_held_captures();
 	vk_flush_pending_sb_destroys();
 	vk_flush_pending_fbo_destroys();
 
@@ -1595,20 +1612,6 @@ static bool vk_output_init(be_output_state_t *state, int width, int height, int 
 	vk->blur_w = blur_w;
 	vk->blur_h = blur_h;
 
-	struct vk_image *staging = calloc(1, sizeof(struct vk_image));
-	if (!staging || !vk_create_image(width, height, VK_FORMAT_R8G8B8A8_UNORM,
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, false, staging)) {
-		free(staging);
-		return false;
-	}
-	vk_discard(staging->image);
-	staging->state = BE_RESOURCE_SHADER_READ;
-	state->staging.native_handle[0] = 0;
-	state->staging.native_handle[1] = (uint64_t)(intptr_t)staging;
-	state->staging.width = width;
-	state->staging.height = height;
-	state->staging.state = BE_RESOURCE_SHADER_READ;
-
 	struct vk_fbo *ss = calloc(1, sizeof(*ss));
 	if (ss && vk_create_fbo(width, height, vk->vk_fmt, ss)) {
 		state->screen_shader.native_handle[0] = (uint64_t)(intptr_t)ss;
@@ -1633,7 +1636,6 @@ static void vk_output_fini(be_output_state_t *state) {
 	struct vk_fbo *pong = vk_fbo_of(state->pong.native_handle[0]);
 	struct vk_fbo *scratch = vk_fbo_of(state->blur_scratch.native_handle[0]);
 	struct vk_fbo *ss = vk_fbo_of(state->screen_shader.native_handle[0]);
-	struct vk_image *staging = (struct vk_image *)(intptr_t)state->staging.native_handle[1];
 	if (capture) {
 		vk_destroy_fbo(capture);
 		free(capture);
@@ -1657,10 +1659,6 @@ static void vk_output_fini(be_output_state_t *state) {
 	if (ss) {
 		vk_destroy_fbo(ss);
 		free(ss);
-	}
-	if (staging) {
-		vk_destroy_image(staging);
-		free(staging);
 	}
 	vk_destroy_blur_levels(state);
 	memset(&state->capture, 0, sizeof(state->capture));
@@ -1894,10 +1892,7 @@ static void vk_free_fbo_resources(struct vk_fbo *fbo) {
 		free(fbo);
 		return;
 	}
-	if (fbo->img.view) {
-		vkDestroyImageView(vk->device, fbo->img.view, NULL);
-		fbo->img.view = VK_NULL_HANDLE;
-	}
+	vk_destroy_image(&fbo->img);
 	if (fbo->fb) {
 		vkDestroyFramebuffer(vk->device, fbo->fb, NULL);
 		fbo->fb = VK_NULL_HANDLE;
@@ -1942,9 +1937,7 @@ static void vk_flush_pending_fbo_destroys(void) {
 	vk->n_pending_fbo_destroys = 0;
 }
 
-static void vk_frame_begin(void) {
-	if (!vk)
-		return;
+static void vk_frame_rotate(void) {
 	vk->frame_slot = (vk->frame_slot + 1) % 3;
 	int s = vk->frame_slot;
 
@@ -1958,6 +1951,7 @@ static void vk_frame_begin(void) {
 		vkDestroyImageView(vk->device, vk->deferred_views[s][i], NULL);
 	vk->n_deferred_views[s] = 0;
 
+	// safe now: the fence guarantees this slot's work has completed
 	vk_flush_pending_sb_destroys();
 
 	vk->frame_cb = vk->frame_cb_bufs[s];
@@ -1971,19 +1965,64 @@ static void vk_frame_begin(void) {
 	vk->ds_idx[s] = 0;
 }
 
+static void vk_frame_begin(void) {
+	if (!vk)
+		return;
+	vk_frame_rotate();
+}
+
+static void vk_frame_flush(void) {
+	if (!vk)
+		return;
+	if (vk->cb_begun) {
+		vkEndCommandBuffer(vk->frame_cb);
+		vk->cb_begun = false;
+		if (vk->frame_dirty) {
+			int s = vk->frame_slot;
+			vkResetFences(vk->device, 1, &vk->frame_fence[s]);
+			VkSubmitInfo si = {
+				.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+				.commandBufferCount = 1,
+				.pCommandBuffers = &vk->frame_cb,
+			};
+			vkQueueSubmit(vk->queue, 1, &si, vk->frame_fence[s]);
+			vk->cb_pending = true;
+		}
+	}
+	vk_frame_rotate();
+}
+
+// drop the extra locks taken on scene capture buffers
+static void vk_release_held_captures(void) {
+	for (int i = 0; i < vk->n_held_captures; i++)
+		wlr_buffer_unlock(vk->held_captures[i]);
+	vk->n_held_captures = 0;
+}
+
+static void vk_capture_reserve_slot(void) {
+	if (vk->n_held_captures < VK_MAX_HELD_CAPTURES)
+		return;
+	vk_frame_flush();
+	vk_release_held_captures();
+}
+
 static void vk_frame_end(void) {
 	if (!vk)
 		return;
 	int s = vk->frame_slot;
 
-	if (!vk->cb_begun)
+	if (!vk->cb_begun) {
+		vk_release_held_captures();
+		vk_flush_pending_fbo_destroys();
 		return;
+	}
 
 	vkEndCommandBuffer(vk->frame_cb);
 
 	if (!vk->frame_dirty) {
 		vkResetCommandBuffer(vk->frame_cb, 0);
 		vk->cb_begun = false;
+		vk_release_held_captures();
 		vk_flush_pending_fbo_destroys();
 		return;
 	}
@@ -1998,6 +2037,7 @@ static void vk_frame_end(void) {
 	vkQueueSubmit(vk->queue, 1, &si, vk->frame_fence[s]);
 	vk->cb_begun = false;
 	vk->cb_pending = true;
+	vk_release_held_captures();
 	vk_flush_pending_fbo_destroys();
 }
 
@@ -2110,6 +2150,13 @@ static bool vk_blur(be_output_state_t *state, be_effect_resource_t src, int src_
 	VkImage tex0 = vk_img_of(state->ping.native_handle[1]);
 	VkImage tex1 = vk_img_of(state->blur_scratch.native_handle[1] ?
 		state->blur_scratch.native_handle[1] : state->pong.native_handle[1]);
+	if (current == tex0 && state->pong.native_handle[0]) {
+		fbo0 = vk_fbo_of(state->pong.native_handle[0]);
+		tex0 = vk_img_of(state->pong.native_handle[1]);
+	} else if (current == tex1 && state->pong.native_handle[0]) {
+		fbo1 = vk_fbo_of(state->pong.native_handle[0]);
+		tex1 = vk_img_of(state->pong.native_handle[1]);
+	}
 	struct vk_fbo *dst_fbo = dst.valid ? vk_fbo_of(dst.handle) : NULL;
 	VkImage dst_img = dst_fbo ? dst_fbo->img.image : VK_NULL_HANDLE;
 
@@ -2539,6 +2586,9 @@ static bool vk_apply_corner_mask(be_output_state_t *state, be_effect_resource_t 
 	if (src_view == VK_NULL_HANDLE)
 		return false;
 
+	// make the previously written capture visible to the fragment shader
+	vk_after_transfer_write(src_img);
+
 	VkDescriptorSetAllocateInfo dsai = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
 		.descriptorPool = vk->desc_pool,
@@ -2553,7 +2603,7 @@ static bool vk_apply_corner_mask(be_output_state_t *state, be_effect_resource_t 
 	VkDescriptorImageInfo dii = {
 		.sampler = vk->sampler,
 		.imageView = src_view,
-		.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.imageLayout = VK_IMAGE_LAYOUT_GENERAL,
 	};
 	VkWriteDescriptorSet write = {
 		.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
@@ -2669,6 +2719,7 @@ static bool vk_capture_readback(struct wlr_buffer *capture_buffer, be_output_sta
 		int src_w, int src_h, uint32_t generation, be_effect_resource_t *out_resource) {
 	if (!be_resource_valid(&dst))
 		return false;
+	vk_capture_reserve_slot();
 	vk->frame_dirty = true;
 	vk_ensure_cb_begun();
 	(void)src_w;
@@ -2719,6 +2770,12 @@ static bool vk_capture_readback(struct wlr_buffer *capture_buffer, be_output_sta
 	vk_after_transfer_write(dst_fbo->img.image);
 	vk_after_transfer_read(vk_attribs.image);
 	wlr_texture_destroy(tex);
+
+	if (vk->n_held_captures < VK_MAX_HELD_CAPTURES)
+		vk->held_captures[vk->n_held_captures++] = wlr_buffer_lock(capture_buffer);
+	else
+		wlr_log(WLR_ERROR, "Capture buffer hold list full, slot may be recycled early");
+
 	out_resource->handle = (uint64_t)result_img;
 	out_resource->width = dst_w;
 	out_resource->height = dst_h;

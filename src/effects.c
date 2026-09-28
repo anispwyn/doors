@@ -710,8 +710,6 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 	}
 
 	be_effect_resource_t result = {0};
-	// the layer-blur variant (toplevels intentionally visible) gets its own
-	// destination: it must never overwrite the windows-hidden shared backdrop
 	bool combined_variant = !hide_blur_toplevels;
 	be_effect_resource_t dst = be_buffer_target_from_buffer(combined_variant ?
 		&ctx->be_state.combined_capture : &ctx->be_state.capture, 0);
@@ -721,18 +719,18 @@ static be_effect_resource_t capture_bg_to_tex1_ex(output_t *output, effects_outp
 	wlr_output_state_finish(&cap_state);
 
 	if (result.valid) {
-		// cache each variant separately: frame_capture (shared, windows hidden)
-		// and combined_frame_capture (layer blur, windows visible) point at
-		// different buffers, so a cache hit can never hand back stale content
-		// from the other variant
-		if (combined_variant) {
+		if (hide_node) {
+			ctx->shared_bg_valid = false;
+			ctx->combined_bg_valid = false;
+		} else if (combined_variant) {
 			ctx->combined_frame_capture = result;
 			ctx->combined_bg_valid = !mica_only;
+			ctx->backdrop_gen = result.generation;
 		} else {
 			ctx->frame_capture = result;
 			ctx->shared_bg_valid = !mica_only;
+			ctx->backdrop_gen = result.generation;
 		}
-		ctx->backdrop_gen = result.generation;
 		if (changed)
 			*changed = true;
 	}
