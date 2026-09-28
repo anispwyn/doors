@@ -5,3 +5,4 @@ arch/src
 arch/pkg
 arch/doors
 arch/*.pkg.tar.zst
+*.mesh*
