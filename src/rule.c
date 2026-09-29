@@ -1,4 +1,4 @@
-#include "layouts/scroller.h"
+#include "layout/scroller.h"
 #include "once.h"
 #include "rule.h"
 #include "settings.h"

@@ -1,8 +1,8 @@
 #include "input/cursor.h"
 #include "input/touch.h"
 #include "once.h"
-#include "protocols/idle_power.h"
-#include "protocols/layer.h"
+#include "protocol/idle_power.h"
+#include "protocol/layer.h"
 #include "server.h"
 #include "tree.h"
 #include <wayland-util.h>

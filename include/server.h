@@ -2,7 +2,7 @@
 
 #include "input/gesture.h"
 #include "types.h"
-#include "protocols/xwayland.h"
+#include "protocol/xwayland.h"
 #include <wayland-protocols/color-management-v1-enum.h>
 #include <wayland-server.h>
 #include <wlr/config.h>

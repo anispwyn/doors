@@ -1,5 +1,5 @@
-#include "layout.h"
-#include "layouts/master_stack.h"
+#include "layout/layout.h"
+#include "layout/master_stack.h"
 #include "output/output.h"
 #include "tree.h"
 #include <limits.h>

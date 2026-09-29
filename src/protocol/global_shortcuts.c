@@ -1,6 +1,6 @@
 #include "input/seat.h"
 #include "once.h"
-#include "protocols/global_shortcuts.h"
+#include "protocol/global_shortcuts.h"
 #include "server.h"
 #include "xx-hotkey-v1-protocol.h"
 #include <linux/input-event-codes.h>

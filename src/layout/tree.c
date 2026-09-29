@@ -1,4 +1,4 @@
-#include "layouts/tree.h"
+#include "layout/tree.h"
 #include "settings.h"
 #include "tabs.h"
 #include "transaction.h"

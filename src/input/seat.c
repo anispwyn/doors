@@ -1,7 +1,7 @@
 #include "input/input_method.h"
 #include "input/seat.h"
 #include "input/tablet.h"
-#include "protocols/pointer_constraint.h"
+#include "protocol/pointer_constraint.h"
 #include "server.h"
 #include <stdlib.h>
 #include <string.h>

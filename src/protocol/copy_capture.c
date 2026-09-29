@@ -1,8 +1,8 @@
 #include "ext-image-capture-source-v1-protocol.h"
 #include "ext-image-copy-capture-v1-protocol.h"
 #include "once.h"
-#include "protocols/copy_capture.h"
-#include "protocols/xwayland.h"
+#include "protocol/copy_capture.h"
+#include "protocol/xwayland.h"
 #include "server.h"
 #include "types.h"
 #include <assert.h>

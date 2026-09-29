@@ -1,6 +1,6 @@
 #include "once.h"
-#include "protocols/dialog.h"
-#include "protocols/xdg_toplevel.h"
+#include "protocol/dialog.h"
+#include "protocol/xdg_toplevel.h"
 #include "server.h"
 #include "types.h"
 #include <wlr/types/wlr_xdg_dialog_v1.h>

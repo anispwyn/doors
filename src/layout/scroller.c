@@ -1,5 +1,5 @@
-#include "layout.h"
-#include "layouts/scroller.h"
+#include "layout/layout.h"
+#include "layout/scroller.h"
 #include "output/output.h"
 #include "tree.h"
 #include "view.h"

@@ -3,7 +3,7 @@
 #include "ipc/ipc.h"
 #include "output/config.h"
 #include "output/output.h"
-#include "protocols/xdg_toplevel.h"
+#include "protocol/xdg_toplevel.h"
 #include "server.h"
 #include "tree.h"
 #include <stdio.h>

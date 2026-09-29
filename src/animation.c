@@ -2,7 +2,7 @@
 #include "bezier.h"
 #include "once.h"
 #include "output/output.h"
-#include "protocols/layer.h"
+#include "protocol/layer.h"
 #include "spring.h"
 #include "surface.h"
 #include "tree.h"

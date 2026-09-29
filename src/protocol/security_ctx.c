@@ -1,5 +1,5 @@
-#include "protocols/copy_capture.h"
-#include "protocols/screencopy.h"
+#include "protocol/copy_capture.h"
+#include "protocol/screencopy.h"
 #include "server.h"
 #include <wlr/types/wlr_data_control_v1.h>
 #include <wlr/types/wlr_export_dmabuf_v1.h>

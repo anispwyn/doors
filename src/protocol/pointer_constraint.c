@@ -1,6 +1,6 @@
 #include "once.h"
-#include "protocols/pointer_constraint.h"
-#include "protocols/xwayland.h"
+#include "protocol/pointer_constraint.h"
+#include "protocol/xwayland.h"
 #include "server.h"
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>

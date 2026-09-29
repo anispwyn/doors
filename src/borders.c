@@ -1,6 +1,6 @@
 #include "borders.h"
 #include "client.h"
-#include "protocols/xwayland.h"
+#include "protocol/xwayland.h"
 #include "settings.h"
 #include "surface.h"
 #include "tree.h"

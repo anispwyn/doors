@@ -2,7 +2,7 @@
 #include "ipc/cmd.h"
 #include "ipc/helpers.h"
 #include "ipc/ipc.h"
-#include "layout.h"
+#include "layout/layout.h"
 #include "output/output.h"
 #include "server.h"
 #include "transaction.h"

@@ -1,6 +1,6 @@
 #include "once.h"
 #include "output/output.h"
-#include "protocols/lock.h"
+#include "protocol/lock.h"
 #include "server.h"
 #include "tree.h"
 #include <stdlib.h>

@@ -1,5 +1,5 @@
 #include "once.h"
-#include "protocols/idle.h"
+#include "protocol/idle.h"
 #include "server.h"
 #include <stdbool.h>
 #include <stdlib.h>

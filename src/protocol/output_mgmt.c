@@ -1,7 +1,7 @@
 #include "once.h"
 #include "output/config.h"
 #include "output/output.h"
-#include "protocols/output_mgmt.h"
+#include "protocol/output_mgmt.h"
 #include "server.h"
 #include <wlr/types/wlr_output.h>
 #include <wlr/types/wlr_output_layout.h>

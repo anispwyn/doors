@@ -3,7 +3,7 @@
 #include "effects/effects.h"
 #include "once.h"
 #include "output/output.h"
-#include "protocols/layer.h"
+#include "protocol/layer.h"
 #include "server.h"
 #include "tree.h"
 #include "types.h"

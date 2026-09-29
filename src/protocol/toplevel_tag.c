@@ -1,6 +1,6 @@
 #include "ipc/ipc.h"
 #include "once.h"
-#include "protocols/xdg_toplevel.h"
+#include "protocol/xdg_toplevel.h"
 #include "rule.h"
 #include "server.h"
 #include "transaction.h"

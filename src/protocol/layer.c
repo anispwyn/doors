@@ -3,11 +3,11 @@
 #include "input/input_method.h"
 #include "input/seat.h"
 #include "input/tablet.h"
-#include "layout.h"
+#include "layout/layout.h"
 #include "once.h"
 #include "output/output.h"
 #include "popup.h"
-#include "protocols/layer.h"
+#include "protocol/layer.h"
 #include "server.h"
 #include "tree.h"
 #include <stdlib.h>
