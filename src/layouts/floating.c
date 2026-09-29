@@ -3,12 +3,12 @@
 #include "layout.h"
 #include "layouts/floating.h"
 #include "output.h"
+#include "protocols/xdg_toplevel.h"
+#include "protocols/xwayland.h"
 #include "server.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
-#include "xdg_toplevel.h"
-#include "xwayland.h"
 #include <stdlib.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_shell.h>

@@ -1,10 +1,10 @@
 #include "borders.h"
 #include "client.h"
+#include "protocols/xwayland.h"
 #include "settings.h"
 #include "surface.h"
 #include "tree.h"
 #include "types.h"
-#include "xwayland.h"
 #include <string.h>
 #include <wlr/types/wlr_scene.h>
 

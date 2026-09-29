@@ -1,6 +1,6 @@
 #include "once.h"
+#include "protocols/xdg_toplevel.h"
 #include "server.h"
-#include "xdg_toplevel.h"
 #include <wlr/types/wlr_scene.h>
 #include <wlr/types/wlr_xdg_shell.h>
 

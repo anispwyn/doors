@@ -1,4 +1,4 @@
-#include "input_method.h"
+#include "input/input_method.h"
 #include "server.h"
 #include <assert.h>
 #include <stdlib.h>

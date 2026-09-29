@@ -5,6 +5,8 @@
 #include "layout.h"
 #include "layouts/floating.h"
 #include "output.h"
+#include "protocols/xdg_toplevel.h"
+#include "protocols/xwayland.h"
 #include "render_unfocused.h"
 #include "scratchpad.h"
 #include "server.h"
@@ -14,8 +16,6 @@
 #include "tree_focus.h"
 #include "types.h"
 #include "workspace.h"
-#include "xdg_toplevel.h"
-#include "xwayland.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

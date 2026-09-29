@@ -1,7 +1,7 @@
+#include "input/keyboard.h"
 #include "ipc.h"
 #include "ipc_cmd.h"
 #include "ipc_helpers.h"
-#include "keyboard.h"
 #include "layout.h"
 #include "output.h"
 #include "server.h"

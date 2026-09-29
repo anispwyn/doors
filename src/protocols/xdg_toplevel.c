@@ -1,13 +1,15 @@
 #include "animation.h"
-#include "cursor.h"
 #include "effects.h"
-#include "input_method.h"
+#include "input/cursor.h"
+#include "input/input_method.h"
 #include "ipc.h"
 #include "layout.h"
 #include "layouts/floating.h"
 #include "layouts/scroller.h"
 #include "output.h"
 #include "popup.h"
+#include "protocols/xdg_toplevel.h"
+#include "protocols/xwayland.h"
 #include "render_unfocused.h"
 #include "rule.h"
 #include "scratchpad.h"
@@ -18,8 +20,6 @@
 #include "tree.h"
 #include "types.h"
 #include "workspace.h"
-#include "xdg_toplevel.h"
-#include "xwayland.h"
 #include <math.h>
 #include <pixman.h>
 #include <stdlib.h>

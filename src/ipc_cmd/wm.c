@@ -3,9 +3,9 @@
 #include "ipc_helpers.h"
 #include "output.h"
 #include "output_config.h"
+#include "protocols/xdg_toplevel.h"
 #include "server.h"
 #include "tree.h"
-#include "xdg_toplevel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

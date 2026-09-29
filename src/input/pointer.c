@@ -1,5 +1,5 @@
-#include "pointer.h"
-#include "seat.h"
+#include "input/pointer.h"
+#include "input/seat.h"
 #include "server.h"
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer.h>

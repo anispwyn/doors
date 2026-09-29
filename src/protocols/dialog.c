@@ -1,8 +1,8 @@
-#include "dialog.h"
 #include "once.h"
+#include "protocols/dialog.h"
+#include "protocols/xdg_toplevel.h"
 #include "server.h"
 #include "types.h"
-#include "xdg_toplevel.h"
 #include <wlr/types/wlr_xdg_dialog_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/util/log.h>

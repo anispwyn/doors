@@ -1,6 +1,6 @@
 #include "once.h"
+#include "protocols/xdg_toplevel.h"
 #include "server.h"
-#include "xdg_toplevel.h"
 #include <wlr/types/wlr_xdg_decoration_v1.h>
 
 static xdg_toplevel_t *toplevel_for_xdg_surface(struct wlr_xdg_surface *surface) {

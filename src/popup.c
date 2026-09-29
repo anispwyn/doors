@@ -1,8 +1,8 @@
-#include "layer.h"
 #include "output.h"
 #include "popup.h"
+#include "protocols/layer.h"
+#include "protocols/xdg_toplevel.h"
 #include "server.h"
-#include "xdg_toplevel.h"
 #include <stdlib.h>
 #include <wlr/types/wlr_layer_shell_v1.h>
 #include <wlr/types/wlr_output_layout.h>

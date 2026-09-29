@@ -1,7 +1,7 @@
-#include "cursor.h"
-#include "seat.h"
+#include "input/cursor.h"
+#include "input/seat.h"
+#include "input/tablet.h"
 #include "server.h"
-#include "tablet.h"
 #include <stdlib.h>
 #include <wlr/backend/libinput.h>
 #include <wlr/types/wlr_cursor.h>

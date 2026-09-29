@@ -1,6 +1,6 @@
 #pragma once
 
-#include "gesture.h"
+#include "input/gesture.h"
 #include "types.h"
 
 #include <stdint.h>

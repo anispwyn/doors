@@ -1,9 +1,9 @@
-#include "cursor.h"
-#include "idle_power.h"
-#include "layer.h"
+#include "input/cursor.h"
+#include "input/touch.h"
 #include "once.h"
+#include "protocols/idle_power.h"
+#include "protocols/layer.h"
 #include "server.h"
-#include "touch.h"
 #include "tree.h"
 #include <wayland-util.h>
 #include <wlr/types/wlr_cursor.h>

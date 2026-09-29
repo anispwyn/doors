@@ -1,4 +1,4 @@
-#include "keyboard.h"
+#include "input/keyboard.h"
 #include "once.h"
 #include "server.h"
 #include <wlr/types/wlr_virtual_keyboard_v1.h>

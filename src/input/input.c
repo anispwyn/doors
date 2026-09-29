@@ -1,7 +1,7 @@
-#include "input.h"
-#include "keyboard.h"
+#include "input/input.h"
+#include "input/keyboard.h"
+#include "input/pointer.h"
 #include "once.h"
-#include "pointer.h"
 #include "server.h"
 #include <float.h>
 #include <libinput.h>

@@ -1,5 +1,5 @@
 #include "config.h"
-#include "keyboard.h"
+#include "input/keyboard.h"
 #include "launcher.h"
 #include "layout.h"
 #include "layouts/master_stack.h"

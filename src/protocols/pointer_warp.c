@@ -1,4 +1,4 @@
-#include "cursor.h"
+#include "input/cursor.h"
 #include "once.h"
 #include "server.h"
 #include <wlr/types/wlr_cursor.h>

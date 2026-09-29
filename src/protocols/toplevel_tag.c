@@ -1,9 +1,9 @@
 #include "ipc.h"
 #include "once.h"
+#include "protocols/xdg_toplevel.h"
 #include "rule.h"
 #include "server.h"
 #include "transaction.h"
-#include "xdg_toplevel.h"
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/types/wlr_xdg_toplevel_tag_v1.h>
 

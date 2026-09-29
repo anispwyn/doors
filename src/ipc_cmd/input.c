@@ -1,4 +1,4 @@
-#include "input.h"
+#include "input/input.h"
 #include "ipc.h"
 #include "ipc_cmd.h"
 #include "ipc_helpers.h"

@@ -1,8 +1,8 @@
 #include "once.h"
+#include "protocols/xdg_toplevel.h"
 #include "rule.h"
 #include "server.h"
 #include "types.h"
-#include "xdg_toplevel.h"
 #include <wlr/types/wlr_keyboard_shortcuts_inhibit_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>
 #include <wlr/xwayland.h>

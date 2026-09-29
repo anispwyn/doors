@@ -1,14 +1,14 @@
 #include "animation.h"
-#include "cursor.h"
 #include "effects.h"
-#include "idle.h"
+#include "input/cursor.h"
 #include "once.h"
 #include "output.h"
+#include "protocols/idle.h"
+#include "protocols/xdg_toplevel.h"
 #include "server.h"
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
-#include "xdg_toplevel.h"
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/types/wlr_scene.h>

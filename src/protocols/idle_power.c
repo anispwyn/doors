@@ -1,7 +1,7 @@
-#include "idle.h"
-#include "idle_power.h"
 #include "once.h"
 #include "output.h"
+#include "protocols/idle.h"
+#include "protocols/idle_power.h"
 #include "server.h"
 #include "settings.h"
 #include <wayland-server-core.h>

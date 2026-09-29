@@ -4,13 +4,13 @@
 #include "layout.h"
 #include "layouts/floating.h"
 #include "output.h"
+#include "protocols/xwayland.h"
 #include "server.h"
 #include "settings.h"
 #include "tabs.h"
 #include "tree.h"
 #include "tree_focus.h"
 #include "types.h"
-#include "xwayland.h"
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_scene.h>
 #include <wlr/util/log.h>

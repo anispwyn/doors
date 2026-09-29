@@ -1,7 +1,7 @@
 #include "once.h"
-#include "pointer_constraint.h"
+#include "protocols/pointer_constraint.h"
+#include "protocols/xwayland.h"
 #include "server.h"
-#include "xwayland.h"
 #include <wlr/types/wlr_cursor.h>
 #include <wlr/types/wlr_pointer_constraints_v1.h>
 #include <wlr/types/wlr_xdg_shell.h>

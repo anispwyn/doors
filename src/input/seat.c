@@ -1,8 +1,8 @@
-#include "input_method.h"
-#include "pointer_constraint.h"
-#include "seat.h"
+#include "input/input_method.h"
+#include "input/seat.h"
+#include "input/tablet.h"
+#include "protocols/pointer_constraint.h"
 #include "server.h"
-#include "tablet.h"
 #include <stdlib.h>
 #include <string.h>
 #include <wlr/types/wlr_cursor.h>

@@ -1,11 +1,11 @@
 #include "once.h"
 #include "output.h"
-#include "screencopy.h"
+#include "protocols/screencopy.h"
+#include "protocols/xwayland.h"
 #include "server.h"
 #include "settings.h"
 #include "types.h"
 #include "wlr-screencopy-unstable-v1-protocol.h"
-#include "xwayland.h"
 #include <assert.h>
 #include <drm_fourcc.h>
 #include <pixman.h>

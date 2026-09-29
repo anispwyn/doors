@@ -1,10 +1,10 @@
-#include "copy_capture.h"
 #include "ext-image-capture-source-v1-protocol.h"
 #include "ext-image-copy-capture-v1-protocol.h"
 #include "once.h"
+#include "protocols/copy_capture.h"
+#include "protocols/xwayland.h"
 #include "server.h"
 #include "types.h"
-#include "xwayland.h"
 #include <assert.h>
 #include <drm_fourcc.h>
 #include <wayland-server-protocol.h>
