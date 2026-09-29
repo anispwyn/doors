@@ -1,5 +1,5 @@
-#include "floating.h"
 #include "ipc.h"
+#include "layouts/floating.h"
 #include "once.h"
 #include "output.h"
 #include "server.h"

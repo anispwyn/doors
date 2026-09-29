@@ -1,7 +1,7 @@
 #include "effects.h"
-#include "floating.h"
 #include "ipc.h"
 #include "layout.h"
+#include "layouts/floating.h"
 #include "output.h"
 #include "server.h"
 #include "transaction.h"

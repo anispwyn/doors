@@ -1,6 +1,6 @@
 #include "layout.h"
+#include "layouts/scroller.h"
 #include "output.h"
-#include "scroller.h"
 #include "tree.h"
 #include "view.h"
 #include <math.h>

@@ -2,7 +2,7 @@
 #include "keyboard.h"
 #include "launcher.h"
 #include "layout.h"
-#include "master_stack.h"
+#include "layouts/master_stack.h"
 #include "once.h"
 #include "output.h"
 #include "server.h"

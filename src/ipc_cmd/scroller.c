@@ -2,9 +2,9 @@
 #include "ipc_cmd.h"
 #include "ipc_helpers.h"
 #include "layout.h"
-#include "master_stack.h"
+#include "layouts/master_stack.h"
+#include "layouts/scroller.h"
 #include "output.h"
-#include "scroller.h"
 #include "server.h"
 #include "tree.h"
 #include <limits.h>

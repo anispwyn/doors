@@ -1,8 +1,8 @@
+#include "layouts/tree.h"
 #include "settings.h"
 #include "tabs.h"
 #include "transaction.h"
 #include "tree.h"
-#include "tree_layout.h"
 #include "types.h"
 #include <wlr/types/wlr_scene.h>
 #include <wlr/util/log.h>

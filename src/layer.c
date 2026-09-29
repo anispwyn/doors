@@ -10,7 +10,6 @@
 #include "server.h"
 #include "tablet.h"
 #include "tree.h"
-#include "types.h"
 #include <stdlib.h>
 #include <wayland-server-core.h>
 #include <wlr/types/wlr_buffer.h>

@@ -1,10 +1,10 @@
 #include "animation.h"
 #include "client.h"
+#include "layouts/tree.h"
 #include "server.h"
 #include "tabs.h"
 #include "text.h"
 #include "tree.h"
-#include "tree_layout.h"
 #include "types.h"
 #include "xwayland.h"
 #include <stdint.h>

@@ -3,7 +3,7 @@
 #include "borders.h"
 #include "client.h"
 #include "tree_focus.h"
-#include "tree_layout.h"
+#include "layouts/tree.h"
 #include "types.h"
 
 #include <wlr/types/wlr_scene.h>

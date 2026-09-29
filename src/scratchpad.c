@@ -1,7 +1,7 @@
 #include "client.h"
-#include "floating.h"
 #include "ipc.h"
 #include "layout.h"
+#include "layouts/floating.h"
 #include "once.h"
 #include "output.h"
 #include "scratchpad.h"

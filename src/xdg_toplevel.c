@@ -1,16 +1,16 @@
 #include "animation.h"
 #include "cursor.h"
 #include "effects.h"
-#include "floating.h"
 #include "input_method.h"
 #include "ipc.h"
 #include "layout.h"
+#include "layouts/floating.h"
+#include "layouts/scroller.h"
 #include "output.h"
 #include "popup.h"
 #include "render_unfocused.h"
 #include "rule.h"
 #include "scratchpad.h"
-#include "scroller.h"
 #include "server.h"
 #include "surface.h"
 #include "tabs.h"
@@ -639,8 +639,6 @@ void xdg_toplevel_destroy(struct wl_listener *listener, void *data) {
 	wl_list_remove(&toplevel->set_title.link);
 	wl_list_remove(&toplevel->set_app_id.link);
 
-	// the decoration object can outlive the toplevel, e.g. when its client is destroyed
-	// together with the toplevel: its listeners must not point into the freed toplevel
 	if (toplevel->xdg_decoration) {
 		wl_list_remove(&toplevel->decoration_destroy.link);
 		wl_list_remove(&toplevel->decoration_request_mode.link);

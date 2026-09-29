@@ -669,10 +669,6 @@ static void handle_map(struct wl_listener *listener, void *data) {
 			wlr_scene_surface_create(&xwayland_toplevel->view.image_capture->tree, xsurface->surface);
 	}
 
-	// x11 analogue of the xdg configure ack: the surface is mapped and has drawn,
-	// so the client is ready to be arranged and shown.
-	xwayland_toplevel->view.configured = true;
-
 	client_update_foreign_toplevel_state(client);
 
 	wlr_log(WLR_DEBUG, "XWayland window map complete: scene_tree enabled=%d shown=%d",

@@ -1,6 +1,6 @@
+#include "layouts/scroller.h"
 #include "once.h"
 #include "rule.h"
-#include "scroller.h"
 #include "settings.h"
 #include "surface.h"
 #include "tree.h"

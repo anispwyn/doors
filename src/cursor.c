@@ -7,10 +7,10 @@
 #include "keyboard.h"
 #include "layer.h"
 #include "layout.h"
+#include "layouts/scroller.h"
 #include "once.h"
 #include "output.h"
 #include "pointer_constraint.h"
-#include "scroller.h"
 #include "server.h"
 #include "tablet.h"
 #include "tabs.h"
@@ -18,7 +18,6 @@
 #include "transaction.h"
 #include "tree.h"
 #include "types.h"
-#include "xdg_toplevel.h"
 #include "xwayland.h"
 #include <linux/input-event-codes.h>
 #include <math.h>

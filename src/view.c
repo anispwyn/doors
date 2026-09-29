@@ -5,6 +5,7 @@
 #include "effects.h"
 #include "input_method.h"
 #include "ipc.h"
+#include "layouts/tree.h"
 #include "output.h"
 #include "seat.h"
 #include "server.h"
@@ -12,7 +13,6 @@
 #include "tablet.h"
 #include "tabs.h"
 #include "tree.h"
-#include "tree_layout.h"
 #include "view.h"
 #include "workspace.h"
 #include "xdg_toplevel.h"
@@ -317,8 +317,6 @@ void view_destroy_foreign_toplevels(view_t *view) {
 		view->ext_foreign_toplevel = NULL;
 	}
 
-	// the identifier is owned by the ext handle, a view that outlives it (unmap
-	// without destroy) must not keep handing out the freed pointer
 	view->foreign_identifier = NULL;
 
 	if (view->foreign_toplevel) {
@@ -794,7 +792,7 @@ void view_destroy(view_t *view) {
 	if (view == NULL)
 		return;
 
-	// stop any in-flight animation and detach the client
+	// stop any playing animation and detach the client
 	animation_cancel_view(view);
 	if (view->client) {
 		if (view->node)
