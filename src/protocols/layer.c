@@ -5,7 +5,7 @@
 #include "input/tablet.h"
 #include "layout.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "popup.h"
 #include "protocols/layer.h"
 #include "server.h"

@@ -1,6 +1,6 @@
 #include "launcher.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "server.h"
 #include "tree.h"
 #include <pthread.h>

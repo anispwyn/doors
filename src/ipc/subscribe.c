@@ -1,5 +1,5 @@
-#include "ipc.h"
-#include "ipc_helpers.h"
+#include "ipc/helpers.h"
+#include "ipc/ipc.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>

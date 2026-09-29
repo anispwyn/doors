@@ -2,7 +2,7 @@
 #include "effects.h"
 #include "effects_backend.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "protocols/layer.h"
 #include "server.h"
 #include "tree.h"

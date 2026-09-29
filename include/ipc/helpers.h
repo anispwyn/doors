@@ -1,6 +1,6 @@
 #pragma once
 
-#include "output.h"
+#include "output/output.h"
 #include "types.h"
 
 #include <stdbool.h>

@@ -1,4 +1,4 @@
-#include "ipc_cmd.h"
+#include "ipc/cmd.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>

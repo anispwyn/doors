@@ -4,7 +4,7 @@
 #include "layout.h"
 #include "layouts/master_stack.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "server.h"
 #include "tree.h"
 #include "types.h"

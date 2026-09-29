@@ -1,7 +1,7 @@
 #include "config.h"
-#include "ipc.h"
-#include "ipc_cmd.h"
-#include "ipc_helpers.h"
+#include "ipc/cmd.h"
+#include "ipc/helpers.h"
+#include "ipc/ipc.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

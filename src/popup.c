@@ -1,4 +1,4 @@
-#include "output.h"
+#include "output/output.h"
 #include "popup.h"
 #include "protocols/layer.h"
 #include "protocols/xdg_toplevel.h"

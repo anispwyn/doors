@@ -1,7 +1,7 @@
-#include "ipc.h"
+#include "ipc/ipc.h"
 #include "once.h"
-#include "output.h"
-#include "output_config.h"
+#include "output/config.h"
+#include "output/output.h"
 #include "server.h"
 #include "settings.h"
 #include <drm_fourcc.h>

@@ -1,5 +1,5 @@
-#include "ipc.h"
-#include "ipc_cmd.h"
+#include "ipc/cmd.h"
+#include "ipc/ipc.h"
 #include "protocols/global_shortcuts.h"
 
 void ipc_cmd_globalshortcuts(char **args, int num, int client_fd) {

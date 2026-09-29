@@ -7,7 +7,7 @@
 #include "layout.h"
 #include "layouts/scroller.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "protocols/global_shortcuts.h"
 #include "protocols/idle_power.h"
 #include "protocols/layer.h"

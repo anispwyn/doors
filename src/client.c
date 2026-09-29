@@ -3,8 +3,6 @@
 #include "view.h"
 #include <string.h>
 
-// The view is the first member of both subtypes, so a view_t * is all any of
-// these accessors ever need.
 struct wlr_scene_tree *client_get_scene_tree(client_t *client) {
 	return client && client->view ? client->view->scene_tree : NULL;
 }

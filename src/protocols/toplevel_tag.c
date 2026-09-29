@@ -1,4 +1,4 @@
-#include "ipc.h"
+#include "ipc/ipc.h"
 #include "once.h"
 #include "protocols/xdg_toplevel.h"
 #include "rule.h"

@@ -1,7 +1,7 @@
-#include "ipc.h"
+#include "ipc/ipc.h"
 #include "layouts/floating.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "server.h"
 #include "tree.h"
 #include <errno.h>

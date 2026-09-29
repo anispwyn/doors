@@ -1,6 +1,6 @@
 #include "layout.h"
 #include "layouts/master_stack.h"
-#include "output.h"
+#include "output/output.h"
 #include "tree.h"
 #include <limits.h>
 #include <stdint.h>

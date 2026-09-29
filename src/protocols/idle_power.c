@@ -1,5 +1,5 @@
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "protocols/idle.h"
 #include "protocols/idle_power.h"
 #include "server.h"

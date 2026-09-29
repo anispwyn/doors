@@ -1,9 +1,9 @@
 #include "config.h"
 #include "input/keyboard.h"
 #include "input/seat.h"
-#include "ipc.h"
-#include "ipc_cmd.h"
-#include "ipc_helpers.h"
+#include "ipc/cmd.h"
+#include "ipc/helpers.h"
+#include "ipc/ipc.h"
 #include "server.h"
 #include <stdio.h>
 

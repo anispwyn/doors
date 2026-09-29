@@ -1,5 +1,5 @@
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "protocols/screencopy.h"
 #include "protocols/xwayland.h"
 #include "server.h"

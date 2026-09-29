@@ -5,7 +5,7 @@
 #include "input/tablet.h"
 #include "input/touch.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "server.h"
 #include <wlr/backend.h>
 #include <wlr/backend/headless.h>

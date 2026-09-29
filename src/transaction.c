@@ -2,7 +2,7 @@
 #include "effects.h"
 #include "input/cursor.h"
 #include "once.h"
-#include "output.h"
+#include "output/output.h"
 #include "protocols/idle.h"
 #include "protocols/xdg_toplevel.h"
 #include "server.h"

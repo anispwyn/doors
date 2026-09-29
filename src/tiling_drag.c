@@ -1,5 +1,5 @@
 #include "layout.h"
-#include "output.h"
+#include "output/output.h"
 #include "server.h"
 #include "tiling_drag.h"
 #include "tree.h"
