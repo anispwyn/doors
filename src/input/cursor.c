@@ -1,5 +1,5 @@
 #include "config.h"
-#include "effects.h"
+#include "effects/effects.h"
 #include "input/cursor.h"
 #include "input/input_method.h"
 #include "input/keyboard.h"

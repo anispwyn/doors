@@ -1,7 +1,6 @@
 #pragma once
 
-#include "effects_backend.h"
-
+#include "effects/backend.h"
 #include <pixman.h>
 #include <stdbool.h>
 #include <wlr/render/swapchain.h>

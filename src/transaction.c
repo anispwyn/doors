@@ -1,5 +1,5 @@
 #include "animation.h"
-#include "effects.h"
+#include "effects/effects.h"
 #include "input/cursor.h"
 #include "once.h"
 #include "output/output.h"

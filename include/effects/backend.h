@@ -198,13 +198,6 @@ static inline void effects_destroy_buffer(struct wlr_buffer **buf, uint64_t *nat
 	*buf = NULL;
 }
 
-/*
- * Canonical resource construction helpers.
- * These are the only approved way to create be_effect_resource_t values
- * from backend-owned buffers. Never construct effect resources manually
- * from raw native handles.
- */
-
 static inline be_effect_resource_t be_buffer_resource(const be_buffer_t *buffer,
 		enum be_resource_state expected_state, uint32_t generation) {
 	if (!buffer || buffer->native_handle[1] == 0 || buffer->width <= 0 || buffer->height <= 0) {

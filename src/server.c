@@ -2,7 +2,7 @@
 #include "backend.h"
 #include "bezier.h"
 #include "config.h"
-#include "effects.h"
+#include "effects/effects.h"
 #include "input/cursor.h"
 #include "input/input.h"
 #include "input/input_method.h"

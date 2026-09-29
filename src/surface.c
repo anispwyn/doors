@@ -1,5 +1,5 @@
 #include "client.h"
-#include "effects_backend.h"
+#include "effects/backend.h"
 #include "output/output.h"
 #include "server.h"
 #include "surface.h"

@@ -1,4 +1,4 @@
-#include "effects_backend.h"
+#include "effects/backend.h"
 
 #include <drm_fourcc.h>
 #include <wlr/config.h>

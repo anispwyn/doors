@@ -1,4 +1,4 @@
-#include "effects.h"
+#include "effects/effects.h"
 #include "ipc/ipc.h"
 #include "layout.h"
 #include "layouts/floating.h"

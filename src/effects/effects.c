@@ -1,6 +1,6 @@
 #include "animation.h"
-#include "effects.h"
-#include "effects_backend.h"
+#include "effects/backend.h"
+#include "effects/effects.h"
 #include "once.h"
 #include "output/output.h"
 #include "protocols/layer.h"

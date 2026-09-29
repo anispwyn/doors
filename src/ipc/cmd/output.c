@@ -1,5 +1,5 @@
 #include "animation.h"
-#include "effects.h"
+#include "effects/effects.h"
 #include "ipc/cmd.h"
 #include "ipc/helpers.h"
 #include "ipc/ipc.h"

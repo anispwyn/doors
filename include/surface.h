@@ -1,8 +1,7 @@
 #pragma once
 
-#include "effects_backend.h"
+#include "effects/backend.h"
 #include "types.h"
-
 #include <pixman.h>
 #include <stdbool.h>
 #include <stdint.h>

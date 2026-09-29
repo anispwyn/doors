@@ -1,5 +1,5 @@
 #include "animation.h"
-#include "effects.h"
+#include "effects/effects.h"
 #include "input/input_method.h"
 #include "input/seat.h"
 #include "input/tablet.h"

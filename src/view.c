@@ -1,7 +1,7 @@
 #include "animation.h"
 #include "borders.h"
 #include "client.h"
-#include "effects.h"
+#include "effects/effects.h"
 #include "input/input_method.h"
 #include "input/seat.h"
 #include "input/tablet.h"
